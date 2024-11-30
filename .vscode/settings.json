@@ -1,0 +1,4 @@
+{
+    "cortex-debug.JLinkGDBServerPath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
+    "cortex-debug.armToolchainPath": ""
+}

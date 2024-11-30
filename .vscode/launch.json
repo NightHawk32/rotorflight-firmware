@@ -1,0 +1,21 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug BMI088_F4",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceRoot}/obj/main/rotorflight_BMI088_F4.elf",
+            "request": "launch",
+            "interface": "swd",
+            "device": "STM32F405VG",
+            "type": "cortex-debug",
+            "runToEntryPoint": "main",
+            "servertype": "jlink",
+            "preLaunchTask": "build-BMI088_F4",
+            "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
+        }
+    ]
+}
