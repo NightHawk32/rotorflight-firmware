@@ -35,6 +35,32 @@
             "problemMatcher": []
         },
         {
+            "label": "build-BMI088_H7",
+            "windows": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "make TARGET=BMI088_H7 DEBUG=GDB"
+                ]
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "clean-BMI088_H7",
+            "windows": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "make TARGET=BMI088_H7 clean"
+                ]
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "build-test",
             "windows": {
                 "command": "bash",

@@ -16,6 +16,19 @@
             "servertype": "jlink",
             "preLaunchTask": "build-BMI088_F4",
             "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
+        },
+        {
+            "name": "Debug BMI088_H7",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceRoot}/obj/main/rotorflight_BMI088_H7.elf",
+            "request": "launch",
+            "interface": "swd",
+            "device": "STM32H743ZI",
+            "type": "cortex-debug",
+            "runToEntryPoint": "main",
+            "servertype": "jlink",
+            "preLaunchTask": "build-BMI088_H7",
+            "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
         }
     ]
 }
