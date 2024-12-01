@@ -1,4 +1,18 @@
 {
     "cortex-debug.JLinkGDBServerPath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
-    "cortex-debug.armToolchainPath": ""
+    "cortex-debug.armToolchainPath": "",
+    "files.associations": {
+        "algorithm": "c",
+        "chrono": "c",
+        "limits": "c",
+        "random": "c",
+        "valarray": "c",
+        "dma.h": "c",
+        "timer_def.h": "c",
+        "version.h": "c",
+        "accgyro_spi_icm20689.h": "c",
+        "accgyro_fake.h": "c",
+        "feature.h": "c",
+        "telemetry.h": "c"
+    }
 }

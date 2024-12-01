@@ -5,18 +5,33 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug BMI088_F4",
+            "name": "Debug F405",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceRoot}/obj/main/rotorflight_BMI088_F4.elf",
+            "executable": "${workspaceRoot}/obj/main/rotorflight_STM32F405.elf",
             "request": "launch",
             "interface": "swd",
             "device": "STM32F405VG",
             "type": "cortex-debug",
             "runToEntryPoint": "main",
             "servertype": "jlink",
-            "preLaunchTask": "build-BMI088_F4",
+            "preLaunchTask": "build-F405",
             "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
         },
+        {
+            "name": "Debug H743",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceRoot}/obj/main/rotorflight_STM32H743.elf",
+            "request": "launch",
+            "interface": "swd",
+            "device": "STM32H743ZI",
+            "type": "cortex-debug",
+            "runToEntryPoint": "main",
+            "servertype": "jlink",
+            "preLaunchTask": "build-H743",
+            "serverArgs": ["SetVerifyDownload = 0"],
+            "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
+        }
+
         {
             "name": "Debug BMI088_H7",
             "cwd": "${workspaceFolder}",
@@ -28,6 +43,7 @@
             "runToEntryPoint": "main",
             "servertype": "jlink",
             "preLaunchTask": "build-BMI088_H7",
+            "serverArgs": ["SetVerifyDownload = 0"],
             "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
         }
     ]

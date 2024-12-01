@@ -9,12 +9,12 @@
     },
     "tasks": [
         {
-            "label": "build-BMI088_F4",
+            "label": "build-F4505",
             "windows": {
                 "command": "bash",
                 "args": [
                     "-c",
-                    "make TARGET=BMI088_F4 DEBUG=GDB"
+                    "make TARGET=STM32F405 DEBUG=GDB"
                 ]
             },
             "group": {
@@ -24,12 +24,38 @@
             "problemMatcher": ["$gcc"]
         },
         {
-            "label": "clean-BMI088_F4",
+            "label": "clean-F405",
             "windows": {
                 "command": "bash",
                 "args": [
                     "-c",
-                    "make TARGET=BMI088_F4 clean"
+                    "make TARGET=STM32F405 clean"
+                ]
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "build-H743",
+            "windows": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "make TARGET=STM32H743 DEBUG=GDB"
+                ]
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "clean-H743",
+            "windows": {
+                "command": "bash",
+                "args": [
+                    "-c",
+                    "make TARGET=STM32H743 clean"
                 ]
             },
             "problemMatcher": []

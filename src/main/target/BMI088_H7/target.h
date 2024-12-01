@@ -20,7 +20,7 @@
 
 #pragma once
 
-#define USE_TARGET_CONFIG
+//#define USE_TARGET_CONFIG
 
 #define TARGET_BOARD_IDENTIFIER "B743"
 #define USBD_PRODUCT_STRING  "BMI088-H7"
@@ -81,6 +81,14 @@
 
 // *************** I2C /Baro/Mag *********************
 
+#define USE_I2C
+
+#define USE_I2C_DEVICE_1
+#define I2C_DEVICE_1            (I2CDEV_1)
+#define I2C1_SCL                PB6
+#define I2C1_SDA                PB7
+
+
 /*#define USE_I2C
 
 #define USE_I2C_DEVICE_1
@@ -123,7 +131,7 @@
 #define USE_SOFTSERIAL1
 #define SOFTSERIAL1_TX_PIN      PC6 // TX6 Pad
 
-#define SERIAL_PORT_COUNT       8
+#define SERIAL_PORT_COUNT       9
 
 #define DEFAULT_RX_FEATURE      FEATURE_RX_SERIAL
 #define SERIALRX_PROVIDER       SERIALRX_SBUS
@@ -168,5 +176,5 @@
 #define TARGET_IO_PORTF 0xffff
 #define TARGET_IO_PORTG 0xffff
 
-#define USABLE_TIMER_CHANNEL_COUNT 14
+#define USABLE_TIMER_CHANNEL_COUNT 12
 #define USED_TIMERS    (TIM_N(1)|TIM_N(2)|TIM_N(3)|TIM_N(4)|TIM_N(5)|TIM_N(8)|TIM_N(15)|TIM_N(16)|TIM_N(17))

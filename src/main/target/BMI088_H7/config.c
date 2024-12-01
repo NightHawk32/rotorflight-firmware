@@ -31,6 +31,16 @@
 #include "config/config.h"
 #include "drivers/pwm_output.h"
 
-//#define  USE_TARGET_CONFIG
+#ifdef USE_TARGET_CONFIG
+#include "config/config.h"
+#include "config/feature.h"
+#include "telemetry/telemetry.h"
+
+void targetConfiguration(void)
+{
+    //telemetryConfigMutable()->halfDuplex = false;
+}
+
+#endif
 
 
