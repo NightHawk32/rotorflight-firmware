@@ -14,5 +14,6 @@
         "accgyro_fake.h": "c",
         "feature.h": "c",
         "telemetry.h": "c"
-    }
+    },
+    "cortex-debug.variableUseNaturalFormat": false
 }

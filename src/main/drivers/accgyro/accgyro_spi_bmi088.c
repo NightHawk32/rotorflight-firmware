@@ -285,7 +285,7 @@ uint8_t bmi088SpiDetect(const extDevice_t *dev)
 
 	spiSetClkDivisor(dev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));
 
-	if (spiReadReg(dev, BMI088_REG_GYRO_CHIP_ID) != BMI088_GYRO_CHIP_ID) {
+	if (spiReadReg(dev, BMI088_REG_GYRO_CHIP_ID | 0x80) != BMI088_GYRO_CHIP_ID) {
 		return MPU_NONE;
 	}
 
@@ -296,7 +296,7 @@ uint8_t bmi088SpiDetect(const extDevice_t *dev)
 
 bool bmi088SpiGyroDetect(gyroDev_t *gyro)
 {
-    if(gyro->mpuDetectionResult.sensor == BMI_088_SPI){
+    if(gyro->mpuDetectionResult.sensor != BMI_088_SPI){
 		return false;
 	}
 
@@ -383,7 +383,7 @@ bool bmi088AccRead(accDev_t *acc)
 
 uint8_t bmi088spiBusReadRegisterAcc(const extDevice_t *dev, const uint8_t reg)
 {
-    uint8_t data[2] = { 0, 0 };
+    uint8_t data[2] = { 0 };
 
     if (spiReadRegMskBufRB(dev, reg, data, 2)) {
         return data[1];

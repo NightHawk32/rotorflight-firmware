@@ -25,8 +25,8 @@
 #define TARGET_BOARD_IDENTIFIER "B743"
 #define USBD_PRODUCT_STRING  "BMI088-H7"
 
-#define LED0_PIN                PB5
-#define LED1_PIN                PB6
+#define LED0_PIN                PC4
+#define LED1_PIN                PC5
 
 #define USE_BEEPER
 #define BEEPER_PIN              PB2

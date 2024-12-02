@@ -30,8 +30,20 @@
             "preLaunchTask": "build-H743",
             "serverArgs": ["SetVerifyDownload = 0"],
             "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
-        }
-
+        },
+        {
+            "name": "Debug H743 Erase",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceRoot}/obj/main/rotorflight_STM32H743.elf",
+            "request": "launch",
+            "interface": "swd",
+            "device": "STM32H743ZI",
+            "type": "cortex-debug",
+            "runToEntryPoint": "main",
+            "servertype": "jlink",
+            "preLaunchTask": "build-H743",
+            "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
+        },
         {
             "name": "Debug BMI088_H7",
             "cwd": "${workspaceFolder}",
@@ -43,7 +55,7 @@
             "runToEntryPoint": "main",
             "servertype": "jlink",
             "preLaunchTask": "build-BMI088_H7",
-            "serverArgs": ["SetVerifyDownload = 0"],
+            //"serverArgs": ["SetVerifyDownload = 0"],
             "serverpath": "C:/Program Files/SEGGER/JLink_V794i/JLinkGDBServerCL.exe",
         }
     ]
