@@ -144,6 +144,7 @@ typedef struct accDev_s {
     sensor_align_e accAlign;
     bool dataReady;
     gyroDev_t *gyro;
+    extDevice_t dev;
     bool acc_high_fsr;
     char revisionCode;                                      // a revision code for the sensor, if known
     uint8_t filler[2];

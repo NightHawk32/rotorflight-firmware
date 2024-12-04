@@ -121,6 +121,10 @@ bool bmi088SpiAccDetect(accDev_t *acc);
 void bmi088SpiAccInit(accDev_t *acc);
 static volatile bool BMI088GyroDetected = false;
 static volatile bool BMI088AccDetected = false;
+//static extDevice_t accExtDevInstance; // same as gyro but other CSN
+//static extDevice_t *accExtDev;
+static IO_t acc_cs_pin;
+static DMA_DATA uint8_t accBuf[32];
 
 void bmi088ExtiHandler(extiCallbackRec_t *cb)
 {
@@ -285,6 +289,12 @@ uint8_t bmi088SpiDetect(const extDevice_t *dev)
 
 	spiSetClkDivisor(dev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));
 
+    //init ACC cs to avoid comminication conflicts
+    acc_cs_pin = IOGetByTag(IO_TAG(BMI088_CS_A_PIN));
+    IOInit(acc_cs_pin, OWNER_SPI_CS, 0);
+    IOConfigGPIO(acc_cs_pin, IOCFG_OUT_PP);
+    IOHi(acc_cs_pin);
+
 	if (spiReadReg(dev, BMI088_REG_GYRO_CHIP_ID | 0x80) != BMI088_GYRO_CHIP_ID) {
 		return MPU_NONE;
 	}
@@ -336,7 +346,7 @@ bool bmi088AccRead(accDev_t *acc)
     acc->ADCRaw[Z] = (int16_t)((rx_buf[ACC_Z_MSB] << 8) | rx_buf[ACC_Z_LSB]);
 
     return true;*/
-    extDevice_t *dev = &acc->gyro->dev;
+    extDevice_t *dev = &acc->dev;
 
     switch (acc->gyro->gyroModeSPI) {
     case GYRO_EXTI_INT:
@@ -351,10 +361,10 @@ bool bmi088AccRead(accDev_t *acc)
         segments[0].u.buffers.txData = dev->txBuf;
         segments[0].u.buffers.rxData = dev->rxBuf;
 
-        spiSequence(&acc->gyro->dev, &segments[0]);
+        spiSequence(dev, &segments[0]);
 
         // Wait for completion
-        spiWait(&acc->gyro->dev);
+        spiWait(dev);
 
         // Fall through
         FALLTHROUGH;
@@ -395,34 +405,34 @@ uint8_t bmi088spiBusReadRegisterAcc(const extDevice_t *dev, const uint8_t reg)
 void bmi088SpiAccInit(accDev_t *acc)
 {
     //softreset
-    spiWriteReg(&acc->gyro->dev, BMI088_REG_ACC_SOFTRESET, BMI088_TRIGGER_SOFTRESET);
+    spiWriteReg(&acc->dev, BMI088_REG_ACC_SOFTRESET, BMI088_TRIGGER_SOFTRESET);
     delay(1);
 
     // dummy read
-    bmi088spiBusReadRegisterAcc(&acc->gyro->dev, BMI088_REG_ACC_CHIP_ID);
+    bmi088spiBusReadRegisterAcc(&acc->dev, BMI088_REG_ACC_CHIP_ID);
 
     // From datasheet page 12:
     // Power up the sensor
     // wait 1ms
     // enter normal mode by writing '4' to ACC_PWR_CTRL
     // wait for 50 ms
-    spiWriteReg(&acc->gyro->dev, BMI088_REG_ACC_PWR_CTRL, BMI088_A_ON);
+    spiWriteReg(&acc->dev, BMI088_REG_ACC_PWR_CTRL, BMI088_A_ON);
     delay(50);
 
     for(uint8_t i = 0 ; i<5;i++){
-        if(bmi088spiBusReadRegisterAcc(&acc->gyro->dev, BMI088_REG_ACC_PWR_CTRL) == BMI088_A_ON){
+        if(bmi088spiBusReadRegisterAcc(&acc->dev, BMI088_REG_ACC_PWR_CTRL) == BMI088_A_ON){
           break;
         }
         delay(5);
     }
 
-    uint8_t range = bmi088spiBusReadRegisterAcc(&acc->gyro->dev, BMI088_REG_ACC_RANGE);
-    spiWriteReg(&acc->gyro->dev, BMI088_REG_ACC_RANGE, range | BMI088_A_RANGE_12G);
+    uint8_t range = bmi088spiBusReadRegisterAcc(&acc->dev, BMI088_REG_ACC_RANGE);
+    spiWriteReg(&acc->dev, BMI088_REG_ACC_RANGE, range | BMI088_A_RANGE_12G);
 
-    spiWriteReg(&acc->gyro->dev, BMI088_REG_ACC_CONF,
+    spiWriteReg(&acc->dev, BMI088_REG_ACC_CONF,
         0x80 | (BMI088_A_BWP_NORMAL<<4) | BMI088_A_ODR_800);
 
-    spiWriteReg(&acc->gyro->dev, BMI088_REG_ACC_PWR_CONF, BMI088_A_ACTIVE);
+    spiWriteReg(&acc->dev, BMI088_REG_ACC_PWR_CONF, BMI088_A_ACTIVE);
     delay(10);
 
     acc->acc_1G = 2731; // 32768 / 12G
@@ -434,19 +444,39 @@ bool bmi088SpiAccDetect(accDev_t *acc)
       return false;
     }
 
-    //spiSetDivisor(acc->bus.busdev_u.spi.instance, BMI088_SPI_DIVISOR);
-
     //TODO: fix this, just a workaround
-    static IO_t cs_pin = IO_NONE;
-    cs_pin = IOGetByTag(IO_TAG(BMI088_CS_A_PIN));
-    IOInit(cs_pin, OWNER_SPI_CS, 0);
-    IOConfigGPIO(cs_pin, IOCFG_OUT_PP);
+    //copy the gyro's SPI device and just use another CSN pin
+
+    //struct extSpi_s gyro_ext_bus_cpy = acc->gyro->dev.busType_u.spi;
+    /*accExtDev = &accExtDevInstance;
+    accExtDev->busType_u.spi.csnPin = acc_cs_pin;
+    spiSetBusInstance(accExtDev, SPI_DEV_TO_CFG(spiDeviceByInstance(GYRO_1_SPI_INSTANCE)));
+    spiSetClkDivisor(accExtDev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));*/
+    /*IOInit(mpuIntIO, OWNER_GYRO_EXTI, 0);
+    EXTIHandlerInit(&gyro->exti, mpuIntExtiHandler);
+    EXTIConfig(mpuIntIO, &gyro->exti, NVIC_PRIO_MPU_INT_EXTI, IOCFG_IN_FLOATING, BETAFLIGHT_EXTI_TRIGGER_RISING);
+    EXTIEnable(mpuIntIO);*/
+    
+    //gyro_ext_bus_cpy.csnPin = acc_cs_pin;
+    //accExtDev.busType_u.spi = gyro_ext_bus_cpy;
+    //magDev->magIntExtiTag = compassConfig()->interruptTag;
+
+    spiSetBusInstance(&acc->dev, SPI_DEV_TO_CFG(spiDeviceByInstance(GYRO_1_SPI_INSTANCE)));
+    acc->dev.busType_u.spi.csnPin = acc_cs_pin;
+    acc->dev.useDMA = false;
+    acc->dev.txBuf = accBuf;
+    acc->dev.rxBuf = &accBuf[32 / 2];
+
+    while (millis() < 100);
+
+    // Set a slow SPI clock that all potential devices can handle during gyro detection
+    spiSetClkDivisor(&acc->dev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));
 
     // perform dummy-read to switch the accel to SPI-mode
-    bmi088spiBusReadRegisterAcc(&acc->gyro->dev, BMI088_REG_ACC_CHIP_ID);
+    bmi088spiBusReadRegisterAcc(&acc->dev, BMI088_REG_ACC_CHIP_ID);
     delay(5);
 
-    if (bmi088spiBusReadRegisterAcc(&acc->gyro->dev, BMI088_REG_ACC_CHIP_ID) != BMI088_ACC_CHIP_ID) {
+    if (bmi088spiBusReadRegisterAcc(&acc->dev, BMI088_REG_ACC_CHIP_ID) != BMI088_ACC_CHIP_ID) {
       return false;
     }
 
@@ -456,6 +486,8 @@ bool bmi088SpiAccDetect(accDev_t *acc)
 
     acc->initFn = bmi088SpiAccInit;
     acc->readFn = bmi088AccRead;
+
+    busDeviceRegister(&acc->dev);
 
     return true;
 }
