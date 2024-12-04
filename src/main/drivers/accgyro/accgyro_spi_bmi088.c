@@ -427,7 +427,7 @@ void bmi088SpiAccInit(accDev_t *acc)
     }
 
     uint8_t range = bmi088spiBusReadRegisterAcc(&acc->dev, BMI088_REG_ACC_RANGE);
-    spiWriteReg(&acc->dev, BMI088_REG_ACC_RANGE, range | BMI088_A_RANGE_12G);
+    spiWriteReg(&acc->dev, BMI088_REG_ACC_RANGE, (range & 0xFC) | BMI088_A_RANGE_12G);
 
     spiWriteReg(&acc->dev, BMI088_REG_ACC_CONF,
         0x80 | (BMI088_A_BWP_NORMAL<<4) | BMI088_A_ODR_800);
