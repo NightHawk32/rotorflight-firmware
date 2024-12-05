@@ -259,7 +259,7 @@ uint8_t bmi088SpiDetect(const extDevice_t *dev)
 
     //init ACC cs to avoid comminication conflicts
     acc_cs_pin = IOGetByTag(IO_TAG(BMI088_CS_A_PIN));
-    IOInit(acc_cs_pin, OWNER_SPI_CS, 0);
+    IOInit(acc_cs_pin, OWNER_ACC_CS, 0);
     IOConfigGPIO(acc_cs_pin, IOCFG_OUT_PP);
     IOHi(acc_cs_pin);
 
@@ -331,7 +331,6 @@ bool bmi088AccRead(accDev_t *acc)
 
     case GYRO_EXTI_INT_DMA:
     {
-        // This data was read from the gyro, which is the same SPI device as the acc
         int16_t *accData = (int16_t *)dev->rxBuf; //first byte = reg addr, second byte = dummy
         acc->ADCRaw[X] = accData[1];
         acc->ADCRaw[Y] = accData[2];
@@ -399,13 +398,10 @@ bool bmi088SpiAccDetect(accDev_t *acc)
     if(acc->mpuDetectionResult.sensor != BMI_088_SPI){
       return false;
     }
-
-    //TODO: fix this, just a workaround
-    //copy the gyro's SPI device and just use another CSN pin
-
-    spiSetBusInstance(&acc->dev, SPI_DEV_TO_CFG(spiDeviceByInstance(GYRO_1_SPI_INSTANCE)));
+    
+    //ACC part uses the same SPI bus as the gyro, so we can just use the gyro's spi instance
+    spiSetBusInstance(&acc->dev, SPI_DEV_TO_CFG(spiDeviceByInstance(acc->gyro->dev.bus->busType_u.spi.instance)));
     acc->dev.busType_u.spi.csnPin = acc_cs_pin;
-    //acc->dev.useDMA = false;
     acc->dev.txBuf = accBuf;
     acc->dev.rxBuf = &accBuf[32 / 2];
 
