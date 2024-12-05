@@ -209,8 +209,6 @@ bool bmi088GyroRead(gyroDev_t *gyro)
     //--------------------------------------------------
 
     extDevice_t *dev = &gyro->dev;
-    int16_t *gyroData = (int16_t *)dev->rxBuf;
-
     //Gyro does not need dummy read, whereas ACC does
 
     switch (gyro->gyroModeSPI) {
@@ -247,14 +245,14 @@ bool bmi088GyroRead(gyroDev_t *gyro)
     case GYRO_EXTI_INT:
     case GYRO_EXTI_NO_INT:
     {
-        dev->txBuf[1] = BMI088_REG_GYRO_RATE_DATA | 0x80;
+        dev->txBuf[0] = BMI088_REG_GYRO_RATE_DATA | 0x80;
 
         busSegment_t segments[] = {
-                {.u.buffers = {NULL, NULL}, 8, true, NULL},
+                {.u.buffers = {NULL, NULL}, 7, true, NULL},
                 {.u.link = {NULL, NULL}, 0, true, NULL},
         };
-        segments[0].u.buffers.txData = &dev->txBuf[1];
-        segments[0].u.buffers.rxData = &dev->rxBuf[1];
+        segments[0].u.buffers.txData = dev->txBuf;
+        segments[0].u.buffers.rxData = dev->rxBuf;
 
         spiSequence(dev, &segments[0]);
 
@@ -266,11 +264,10 @@ bool bmi088GyroRead(gyroDev_t *gyro)
 
     case GYRO_EXTI_INT_DMA:
     {
-        // If read was triggered in interrupt don't bother waiting. The worst that could happen is that we pick
-        // up an old value.
-        gyro->gyroADCRaw[X] = gyroData[1];
-        gyro->gyroADCRaw[Y] = gyroData[2];
-        gyro->gyroADCRaw[Z] = gyroData[3];
+        int16_t *gyroData = (int16_t *)&dev->rxBuf[1];//first byte is the register address
+        gyro->gyroADCRaw[X] = gyroData[0];
+        gyro->gyroADCRaw[Y] = gyroData[1];
+        gyro->gyroADCRaw[Z] = gyroData[2];
         break;
     }
 
@@ -372,11 +369,8 @@ bool bmi088AccRead(accDev_t *acc)
 
     case GYRO_EXTI_INT_DMA:
     {
-        // If read was triggered in interrupt don't bother waiting. The worst that could happen is that we pick
-        // up an old value.
-
         // This data was read from the gyro, which is the same SPI device as the acc
-        int16_t *accData = (int16_t *)dev->rxBuf;
+        int16_t *accData = (int16_t *)dev->rxBuf; //first byte = reg addr, second byte = dummy
         acc->ADCRaw[X] = accData[1];
         acc->ADCRaw[Y] = accData[2];
         acc->ADCRaw[Z] = accData[3];
@@ -463,7 +457,7 @@ bool bmi088SpiAccDetect(accDev_t *acc)
 
     spiSetBusInstance(&acc->dev, SPI_DEV_TO_CFG(spiDeviceByInstance(GYRO_1_SPI_INSTANCE)));
     acc->dev.busType_u.spi.csnPin = acc_cs_pin;
-    acc->dev.useDMA = false;
+    //acc->dev.useDMA = false;
     acc->dev.txBuf = accBuf;
     acc->dev.rxBuf = &accBuf[32 / 2];
 
