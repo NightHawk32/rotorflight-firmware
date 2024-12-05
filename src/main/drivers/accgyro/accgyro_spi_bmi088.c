@@ -179,37 +179,7 @@ busStatus_e bmi088Intcallback(uint32_t arg)
 
 bool bmi088GyroRead(gyroDev_t *gyro)
 {
-    /*enum {
-      REG = 0,
-      RATE_X_LSB,
-      RATE_X_MSB,
-      RATE_Y_LSB,
-      RATE_Y_MSB,
-      RATE_Z_LSB,
-      RATE_Z_MSB,
-      BUFFER_SIZE,
-    };
-
     extDevice_t *dev = &gyro->dev;
-
-    uint8_t rx_buf[BUFFER_SIZE];
-    static const uint8_t tx_buf[BUFFER_SIZE] = {BMI088_REG_GYRO_RATE_DATA | 0x80, 0, 0, 0, 0, 0, 0};
-
-    IOLo(gyro->bus.busdev_u.spi.csnPin);
-    spiTransfer(gyro->bus.busdev_u.spi.instance, tx_buf, rx_buf, BUFFER_SIZE);
-    IOHi(gyro->bus.busdev_u.spi.csnPin);
-
-    gyro->gyroADCRaw[X] = (int16_t)((rx_buf[RATE_X_MSB] << 8) | rx_buf[RATE_X_LSB]);
-    gyro->gyroADCRaw[Y] = (int16_t)((rx_buf[RATE_Y_MSB] << 8) | rx_buf[RATE_Y_LSB]);
-    gyro->gyroADCRaw[Z] = (int16_t)((rx_buf[RATE_Z_MSB] << 8) | rx_buf[RATE_Z_LSB]);
-
-    return true;*/
-
-
-    //--------------------------------------------------
-
-    extDevice_t *dev = &gyro->dev;
-    //Gyro does not need dummy read, whereas ACC does
 
     switch (gyro->gyroModeSPI) {
     case GYRO_EXTI_INIT:
@@ -218,7 +188,6 @@ bool bmi088GyroRead(gyroDev_t *gyro)
         memset(dev->txBuf, 0x00, 8);
 
         // Check that minimum number of interrupts have been detected
-
         // We need some offset from the gyro interrupts to ensure sampling after the interrupt
         gyro->gyroDmaMaxDuration = 5;
         // Using DMA for gyro access upsets the scheduler on the F4
@@ -311,7 +280,7 @@ bool bmi088SpiGyroDetect(gyroDev_t *gyro)
 
     gyro->initFn = bmi088SpiGyroInit;
     gyro->readFn = bmi088GyroRead;
-    gyro->scale = 1.0f / 16.4f;
+    gyro->scale = GYRO_SCALE_2000DPS;
 
     return true;
 }
@@ -319,36 +288,14 @@ bool bmi088SpiGyroDetect(gyroDev_t *gyro)
 
 bool bmi088AccRead(accDev_t *acc)
 {
-    /*enum {
-        REG = 0,
-        DUMMY,
-        ACC_X_LSB,
-        ACC_X_MSB,
-        ACC_Y_LSB,
-        ACC_Y_MSB,
-        ACC_Z_LSB,
-        ACC_Z_MSB,
-        BUFFER_SIZE,
-    };
-
-    uint8_t rx_buf[BUFFER_SIZE];
-    static const uint8_t tx_buf[BUFFER_SIZE] = {BMI088_REG_ACC_DATA | 0x80, 0, 0, 0, 0, 0, 0, 0};
-
-    IOLo(acc->bus.busdev_u.spi.csnPin);
-    spiTransfer(acc->bus.busdev_u.spi.instance, tx_buf, rx_buf, BUFFER_SIZE);
-    IOHi(acc->bus.busdev_u.spi.csnPin);
-
-    acc->ADCRaw[X] = (int16_t)((rx_buf[ACC_X_MSB] << 8) | rx_buf[ACC_X_LSB]);
-    acc->ADCRaw[Y] = (int16_t)((rx_buf[ACC_Y_MSB] << 8) | rx_buf[ACC_Y_LSB]);
-    acc->ADCRaw[Z] = (int16_t)((rx_buf[ACC_Z_MSB] << 8) | rx_buf[ACC_Z_LSB]);
-
-    return true;*/
     extDevice_t *dev = &acc->dev;
 
     switch (acc->gyro->gyroModeSPI) {
     case GYRO_EXTI_INT:
     case GYRO_EXTI_NO_INT:
     {
+        memset(dev->txBuf, 0x00, 8);
+
         dev->txBuf[0] = BMI088_REG_ACC_DATA | 0x80;
 
         busSegment_t segments[] = {
@@ -441,29 +388,12 @@ bool bmi088SpiAccDetect(accDev_t *acc)
     //TODO: fix this, just a workaround
     //copy the gyro's SPI device and just use another CSN pin
 
-    //struct extSpi_s gyro_ext_bus_cpy = acc->gyro->dev.busType_u.spi;
-    /*accExtDev = &accExtDevInstance;
-    accExtDev->busType_u.spi.csnPin = acc_cs_pin;
-    spiSetBusInstance(accExtDev, SPI_DEV_TO_CFG(spiDeviceByInstance(GYRO_1_SPI_INSTANCE)));
-    spiSetClkDivisor(accExtDev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));*/
-    /*IOInit(mpuIntIO, OWNER_GYRO_EXTI, 0);
-    EXTIHandlerInit(&gyro->exti, mpuIntExtiHandler);
-    EXTIConfig(mpuIntIO, &gyro->exti, NVIC_PRIO_MPU_INT_EXTI, IOCFG_IN_FLOATING, BETAFLIGHT_EXTI_TRIGGER_RISING);
-    EXTIEnable(mpuIntIO);*/
-    
-    //gyro_ext_bus_cpy.csnPin = acc_cs_pin;
-    //accExtDev.busType_u.spi = gyro_ext_bus_cpy;
-    //magDev->magIntExtiTag = compassConfig()->interruptTag;
-
     spiSetBusInstance(&acc->dev, SPI_DEV_TO_CFG(spiDeviceByInstance(GYRO_1_SPI_INSTANCE)));
     acc->dev.busType_u.spi.csnPin = acc_cs_pin;
     //acc->dev.useDMA = false;
     acc->dev.txBuf = accBuf;
     acc->dev.rxBuf = &accBuf[32 / 2];
-
-    while (millis() < 100);
-
-    // Set a slow SPI clock that all potential devices can handle during gyro detection
+    
     spiSetClkDivisor(&acc->dev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));
 
     // perform dummy-read to switch the accel to SPI-mode
