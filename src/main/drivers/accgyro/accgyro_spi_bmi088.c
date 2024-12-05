@@ -53,7 +53,9 @@
 #define BMI088_REG_GYRO_INT_CTRL 0x15
 #define BMI088_REG_GYRO_INT3_INT4_IO_CONF 0x16
 #define BMI088_REG_GYRO_INT3_INT4_IO_MAP 0x18
+#define BMI088_REG_GYRO_SELF_TEST 0x3C
 #define BMI088_EN_DRDY_INT 0x80
+
 #define BMI088_REG_ACC_CHIP_ID 0x00
 #define BMI088_ACC_CHIP_ID 0x1E
 #define BMI088_REG_ACC_CONF 0x40
@@ -275,8 +277,21 @@ bool bmi088SpiGyroDetect(gyroDev_t *gyro)
     if(gyro->mpuDetectionResult.sensor != BMI_088_SPI){
 		return false;
 	}
+    uint8_t resultBITE = spiReadReg(&gyro->dev, BMI088_REG_GYRO_SELF_TEST| 0x80);
 
-    //TODO: self-test?
+    //trigger BITE
+    spiWriteReg(&gyro->dev, BMI088_REG_GYRO_SELF_TEST, 0x01);
+    uint8_t startBITETime = millis();
+    do{
+        resultBITE = spiReadReg(&gyro->dev, BMI088_REG_GYRO_SELF_TEST| 0x80);
+    }while(startBITETime - millis() < 50 && (resultBITE & 0x02) != 0x02);
+    
+    
+    if((resultBITE & 0x04) == 0x04){
+        //BITE failed
+        return false;
+    }
+    
 
     gyro->initFn = bmi088SpiGyroInit;
     gyro->readFn = bmi088GyroRead;
@@ -393,7 +408,7 @@ bool bmi088SpiAccDetect(accDev_t *acc)
     //acc->dev.useDMA = false;
     acc->dev.txBuf = accBuf;
     acc->dev.rxBuf = &accBuf[32 / 2];
-    
+
     spiSetClkDivisor(&acc->dev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));
 
     // perform dummy-read to switch the accel to SPI-mode
