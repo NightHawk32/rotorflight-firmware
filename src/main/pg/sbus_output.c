@@ -15,32 +15,27 @@
  * along with this software. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#pragma once
-
-#include "types.h"
+#include "pg/pg_ids.h"
 #include "platform.h"
 
-#include "pg/pg.h"
+#include "pg/sbus_output.h"
 
-typedef struct governorConfig_s {
-    uint8_t  gov_mode;
-    uint16_t gov_startup_time;
-    uint16_t gov_spoolup_time;
-    uint16_t gov_tracking_time;
-    uint16_t gov_recovery_time;
-    uint16_t gov_zero_throttle_timeout;
-    uint16_t gov_lost_headspeed_timeout;
-    uint16_t gov_autorotation_timeout;
-    uint16_t gov_autorotation_bailout_time;
-    uint16_t gov_autorotation_min_entry_time;
-    uint8_t  gov_handover_throttle;
-    uint8_t  gov_pwr_filter;
-    uint8_t  gov_rpm_filter;
-    uint8_t  gov_tta_filter;
-    uint8_t  gov_ff_filter;
-    uint8_t  gov_spoolup_min_throttle;
-} governorConfig_t;
+#ifdef USE_SBUS_OUTPUT
 
-PG_DECLARE(governorConfig_t, governorConfig);
+// The config struct is quite large. A ResetFn is smaller than a ResetTemplate.
+PG_REGISTER_WITH_RESET_FN(sbusOutConfig_t, sbusOutConfig,
+                          PG_DRIVER_SBUS_OUT_CONFIG, 0);
 
+void pgResetFn_sbusOutConfig(sbusOutConfig_t *config) {
+    for (int i = 0; i < SBUS_OUT_CHANNELS; i++) {
+        config->sourceType[i] = SBUS_OUT_SOURCE_RX;
+        config->sourceIndex[i] = i;
+        config->sourceRangeLow[i] = 1000;
+        config->sourceRangeHigh[i] = 2000;
+    }
+    config->frameRate = 50;
 
+    config->pinSwap = 0;
+}
+
+#endif

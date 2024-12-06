@@ -1984,12 +1984,30 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         sbufWriteU8(dst, governorConfig()->gov_rpm_filter);
         sbufWriteU8(dst, governorConfig()->gov_tta_filter);
         sbufWriteU8(dst, governorConfig()->gov_ff_filter);
+        sbufWriteU8(dst, governorConfig()->gov_spoolup_min_throttle);
         break;
 
     default:
         unsupportedCommand = true;
     }
     return !unsupportedCommand;
+}
+
+void mspGetOptionalIndex(sbuf_t *src, const range_t *range, int *value)
+{
+    if (sbufBytesRemaining(src) > 0) {
+        *value = constrain(sbufReadU8(src), range->min, range->max);
+    }
+}
+
+void mspGetOptionalIndexRange(sbuf_t *src, const range_t *range, range_t *value)
+{
+    if (sbufBytesRemaining(src) > 0) {
+        value->min = value->max = constrain(sbufReadU8(src), range->min, range->max);
+        if (sbufBytesRemaining(src) > 0) {
+            value->max = constrain(sbufReadU8(src), value->min, range->max);
+        }
+    }
 }
 
 static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_t cmdMSP, sbuf_t *src, sbuf_t *dst, mspPostProcessFnPtr *mspPostProcessFn)
@@ -3339,6 +3357,9 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         governorConfigMutable()->gov_rpm_filter = sbufReadU8(src);
         governorConfigMutable()->gov_tta_filter = sbufReadU8(src);
         governorConfigMutable()->gov_ff_filter = sbufReadU8(src);
+        if (sbufBytesRemaining(src) >= 1) {
+            governorConfigMutable()->gov_spoolup_min_throttle = sbufReadU8(src);
+        }
         break;
 
     default:
