@@ -29,19 +29,13 @@
 
 const timerHardware_t timerHardware[USABLE_TIMER_CHANNEL_COUNT] = {
 
-    DEF_TIM(TIM3,  CH3, PB0,  TIM_USE_MOTOR, 0, 0, 2),   // S1
-    DEF_TIM(TIM3,  CH4, PB1,  TIM_USE_MOTOR, 0, 1, 2),   // S2
+    DEF_TIM(TIM3,  CH3, PB0,  TIM_USE_MOTOR, 0, 0, 1),   // M1
+    DEF_TIM(TIM3,  CH4, PB1,  TIM_USE_MOTOR, 0, 1, 1),   // M2
 
-    DEF_TIM(TIM5,  CH4, PA3,  TIM_USE_SERVO, 0, 2, 0),   // S3
-    DEF_TIM(TIM5,  CH3, PA2,  TIM_USE_SERVO, 0, 3, 0),   // S4
-    DEF_TIM(TIM5,  CH2, PA1,  TIM_USE_SERVO, 0, 4, 0),   // S5
-    DEF_TIM(TIM5,  CH1, PA0,  TIM_USE_SERVO, 0, 5, 0),   // S6
-
-    //DEF_TIM(TIM3,  CH2, PB4,  TIM_USE_SERVO, 0, 6, 2),   // S7
-    //DEF_TIM(TIM3,  CH1, PB5,  TIM_USE_SERVO, 0, 7, 2),   // S8
-
-    DEF_TIM(TIM4,  CH1, PD12, TIM_USE_SERVO, 0, 8, 1),   // S9
-    DEF_TIM(TIM4,  CH2, PD13, TIM_USE_LED, 0, 9, 1),   // S10
+    DEF_TIM(TIM2,  CH4, PA3,  TIM_USE_SERVO, 0, 2, 0),   // S1
+    DEF_TIM(TIM2,  CH3, PA2,  TIM_USE_SERVO, 0, 3, 0),   // S2
+    DEF_TIM(TIM2,  CH2, PA1,  TIM_USE_SERVO, 0, 4, 0),   // S3
+    DEF_TIM(TIM2,  CH1, PA0,  TIM_USE_SERVO, 0, 5, 0),   // S4
 
     DEF_TIM(TIM8,  CH2, PC7,  TIM_USE_PPM, 0, 0, 0),   // RX6 PPM
     DEF_TIM(TIM8,  CH1, PC6,  TIM_USE_ANY, 0, 0, 0),   // TX6    

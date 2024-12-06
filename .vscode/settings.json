@@ -13,7 +13,20 @@
         "accgyro_spi_icm20689.h": "c",
         "accgyro_fake.h": "c",
         "feature.h": "c",
-        "telemetry.h": "c"
+        "telemetry.h": "c",
+        "memory": "cpp",
+        "mutex": "cpp",
+        "shared_mutex": "cpp",
+        "array": "c",
+        "vector": "c",
+        "xstring": "c",
+        "xutility": "c",
+        "string": "c",
+        "string_view": "c",
+        "compass.h": "c",
+        "sensor_alignment.h": "c",
+        "charconv": "cpp",
+        "gyro.h": "c"
     },
-    "cortex-debug.variableUseNaturalFormat": false
+    "cortex-debug.variableUseNaturalFormat": true
 }
