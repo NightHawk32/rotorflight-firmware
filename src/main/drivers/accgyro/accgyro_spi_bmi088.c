@@ -123,9 +123,6 @@ bool bmi088SpiAccDetect(accDev_t *acc);
 void bmi088SpiAccInit(accDev_t *acc);
 static volatile bool BMI088GyroDetected = false;
 static volatile bool BMI088AccDetected = false;
-//static extDevice_t accExtDevInstance; // same as gyro but other CSN
-//static extDevice_t *accExtDev;
-static IO_t acc_cs_pin;
 static DMA_DATA uint8_t accBuf[32];
 
 void bmi088ExtiHandler(extiCallbackRec_t *cb)
@@ -258,10 +255,10 @@ uint8_t bmi088SpiDetect(const extDevice_t *dev)
 	spiSetClkDivisor(dev, spiCalculateDivider(BMI088_MAX_SPI_CLK_HZ));
 
     //init ACC cs to avoid comminication conflicts
-    acc_cs_pin = IOGetByTag(IO_TAG(BMI088_CS_A_PIN));
+    /*acc_cs_pin = IOGetByTag(IO_TAG(BMI088_CS_A_PIN));
     IOInit(acc_cs_pin, OWNER_ACC_CS, 0);
     IOConfigGPIO(acc_cs_pin, IOCFG_OUT_PP);
-    IOHi(acc_cs_pin);
+    IOHi(acc_cs_pin);*/
 
 	if (spiReadReg(dev, BMI088_REG_GYRO_CHIP_ID | 0x80) != BMI088_GYRO_CHIP_ID) {
 		return MPU_NONE;
@@ -401,7 +398,7 @@ bool bmi088SpiAccDetect(accDev_t *acc)
     
     //ACC part uses the same SPI bus as the gyro, so we can just use the gyro's spi instance
     spiSetBusInstance(&acc->dev, SPI_DEV_TO_CFG(spiDeviceByInstance(acc->gyro->dev.bus->busType_u.spi.instance)));
-    acc->dev.busType_u.spi.csnPin = acc_cs_pin;
+    acc->dev.busType_u.spi.csnPin = acc->gyro->csnAccPin; //get the CS pin from the gyro device config
     acc->dev.txBuf = accBuf;
     acc->dev.rxBuf = &accBuf[32 / 2];
 

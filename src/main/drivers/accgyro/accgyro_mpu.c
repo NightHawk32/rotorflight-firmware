@@ -388,6 +388,14 @@ static bool detectSPISensorsAndUpdateDetectionResult(gyroDev_t *gyro, const gyro
     IOConfigGPIO(gyro->dev.busType_u.spi.csnPin, SPI_IO_CS_CFG);
     IOHi(gyro->dev.busType_u.spi.csnPin); // Ensure device is disabled, important when two devices are on the same bus.
 
+    // for BMI088 which has two CS pins
+    if(config->csnAccTag) {
+        gyro->csnAccPin = IOGetByTag(config->csnAccTag);
+        IOInit(gyro->csnAccPin, OWNER_ACC_CS, RESOURCE_INDEX(config->index));
+        IOConfigGPIO(gyro->csnAccPin, SPI_IO_CS_CFG);
+        IOHi(gyro->csnAccPin); // Ensure device is disabled, important when two devices are on the same bus.
+    }
+
     uint8_t sensor = MPU_NONE;
 
     // Allow 100ms before attempting to access gyro's SPI bus
@@ -413,6 +421,9 @@ static bool detectSPISensorsAndUpdateDetectionResult(gyroDev_t *gyro, const gyro
     // Detection failed, disable CS pin again
 
     spiPreinitByTag(config->csnTag);
+    if(config->csnAccTag) {
+        spiPreinitByTag(config->csnAccTag);
+    }
 
     return false;
 }
