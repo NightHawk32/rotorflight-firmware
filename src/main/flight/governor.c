@@ -51,6 +51,7 @@
 #define GOV_THROTTLE_OFF_LIMIT          0.05f
 
 // Throttle limits for spoolup
+#define GOV_MIN_SPOOLUP_THROTTLE        0.05f
 #define GOV_MAX_SPOOLUP_THROTTLE        0.95f
 
 // Headspeed quality levels
@@ -849,11 +850,11 @@ static float govSpoolUpControl(void)
     output = gov.pidSum;
 
     // Apply gov.C if output not saturated
-    if (!((output > GOV_MAX_SPOOLUP_THROTTLE && gov.C > 0) || (output < gov.minSpoolupThrottle && gov.C < 0)))
+    if (!((output > GOV_MAX_SPOOLUP_THROTTLE && gov.C > 0) || (output < GOV_MIN_SPOOLUP_THROTTLE && gov.C < 0)))
         gov.I += gov.C;
 
     // Limit output
-    output = constrainf(output, gov.minSpoolupThrottle, GOV_MAX_SPOOLUP_THROTTLE);
+    output = constrainf(output, GOV_MIN_SPOOLUP_THROTTLE, GOV_MAX_SPOOLUP_THROTTLE);
 
     return output;
 }
