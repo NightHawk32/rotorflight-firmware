@@ -3506,6 +3506,8 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
                     xdflyParamIndex++;
                     if(xdflyParamIndex == XDFLY_PARAM_COUNT){
                         xdflySetupStatus = XDFLY_PARAMSREADY;
+                        paramPayloadLength = XDFLY_PARAM_COUNT * 2;
+                        memcpy(paramPayload, xdflyParams, paramPayloadLength);
                     }
                 }
                 break;
@@ -3753,7 +3755,7 @@ bool INIT_CODE escSensorInit(void)
             rrfsmDecode = xdflyDecode;
             callback = rrfsmDataReceive;
             rrfsmAccept = xdflyAccept;
-            paramMspActive = true;
+            escSig = ESC_SIG_XDFLY;
             break;
         case ESC_SENSOR_PROTO_RECORD:
             baudrate = baudRates[portConfig->telemetry_baudrateIndex];
