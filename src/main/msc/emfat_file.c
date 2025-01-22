@@ -21,6 +21,7 @@
 /*
  * Author: jflyper@github.com
  */
+#include <ctype.h>
 
 #include "platform.h"
 #include "emfat.h"
@@ -39,6 +40,7 @@
 #include "io/flashfs.h"
 
 #include "pg/flash.h"
+#include "pg/pilot.h"
 
 #include "msc/usbd_storage.h"
 
@@ -133,6 +135,9 @@ static emfat_entry_t entries[1 + EMFAT_MAX_ENTRY];
 emfat_t emfat;
 static uint32_t cmaTime = CMA_TIME;
 
+// The craft name to compose log filenames. It includes a separator "_".
+static char craft_name[MAX_NAME_LENGTH + 2];
+
 static void emfat_set_entry_cma(emfat_entry_t *entry)
 {
     // Set file creation/modification/access times to be the same, either the default date or that from the RTC
@@ -143,11 +148,95 @@ static void emfat_set_entry_cma(emfat_entry_t *entry)
 }
 
 #ifdef USE_FLASHFS
-static void emfat_add_log(emfat_entry_t *entry, int number, uint32_t offset, uint32_t size)
+static inline int emfat_decode_bits(uint32_t v, uint8_t starting_bit, uint8_t length)
 {
-    static char logNames[1 + EMFAT_MAX_LOG_ENTRY][8+1+3];
+    return (v >> starting_bit) & ((1 << length) - 1);
+}
+static inline int emfat_decode_year(uint32_t cma)
+{
+    return emfat_decode_bits(cma, 9 + 16, 7) + 1980;
+}
+static inline int emfat_decode_month(uint32_t cma)
+{
+    return emfat_decode_bits(cma, 5 + 16, 4);
+}
+static inline int emfat_decode_day(uint32_t cma)
+{
+    return emfat_decode_bits(cma, 0 + 16, 5);
+}
+static inline int emfat_decode_hour(uint32_t cma)
+{
+    return emfat_decode_bits(cma, 11, 5);
+}
+static inline int emfat_decode_minute(uint32_t cma)
+{
+    return emfat_decode_bits(cma, 5, 6);
+}
+static inline int emfat_decode_second(uint32_t cma)
+{
+    return emfat_decode_bits(cma, 0, 5) << 1;
+}
 
-    tfp_sprintf(logNames[number], FC_FIRMWARE_IDENTIFIER "_%03d.BBL", number + 1);
+/*
+ * Change illegal filename charactors to '_'.
+ */
+void legalize_filename(char *name)
+{
+    for (int i = 0; name[i] != '\0'; i++) {
+        if (isalpha(name[i])) {
+            continue;
+        }
+        if (isdigit(name[i])) {
+            continue;
+        }
+        switch (name[i]) {
+        case ' ':
+        case '$':
+        case '%':
+        case '-':
+        case '_':
+        case '@':
+        case '~':
+        case '`':
+        case '!':
+        case '(':
+        case ')':
+        case '{':
+        case '}':
+        case '^':
+        case '#':
+        case '&':
+        case '.': // Spec says only 1 dot is allowed. We don't care this rule.
+            continue;
+        }
+
+        name[i] = '_';
+    }
+}
+
+static void emfat_add_log(emfat_entry_t *entry, int number, uint32_t offset,
+                          uint32_t size)
+{
+    static char logNames[1 + EMFAT_MAX_LOG_ENTRY]
+                        [4 + MAX_NAME_LENGTH + 1 + 1 + 9 + 6 + 4 + 1];
+
+    if (entry->cma_time[0] == cmaTime) {
+        // Unrecognized timestamp
+        tfp_sprintf(logNames[number], FC_FIRMWARE_IDENTIFIER "%s_%03d.bbl",
+                    craft_name,
+                    number + 1);
+    } else {
+        // Recognized timestamp, create a meaningful filename.
+        tfp_sprintf(logNames[number],
+                    FC_FIRMWARE_IDENTIFIER "%s_%04d%02d%02d_%02d%02d%02d.bbl",
+                    craft_name,
+                    emfat_decode_year(entry->cma_time[0]),
+                    emfat_decode_month(entry->cma_time[0]),
+                    emfat_decode_day(entry->cma_time[0]),
+                    emfat_decode_hour(entry->cma_time[0]),
+                    emfat_decode_minute(entry->cma_time[0]),
+                    emfat_decode_second(entry->cma_time[0]));
+    }
     entry->name = logNames[number];
     entry->level = 1;
     entry->offset = offset;
@@ -162,7 +251,7 @@ static void emfat_add_log(emfat_entry_t *entry, int number, uint32_t offset, uin
 static int emfat_find_log(emfat_entry_t *entry, int maxCount, int flashfsUsedSpace)
 {
     static uint8_t buffer[HDR_BUF_SIZE];
-    int lastOffset = 0;
+    int lastOffset = -1;
     int currOffset = 0;
     int buffOffset;
     int hdrOffset;
@@ -174,7 +263,7 @@ static int emfat_find_log(emfat_entry_t *entry, int maxCount, int flashfsUsedSpa
     int lenTimeHeader = strlen(timeHeader);
     int timeHeaderMatched = 0;
 
-    for ( ; currOffset < flashfsUsedSpace ; currOffset += 2048) { // XXX 2048 = FREE_BLOCK_SIZE in io/flashfs.c
+    for ( ; currOffset < flashfsUsedSpace ; currOffset += flashGetGeometry()->pageSize) {
 
         mscSetActive();
         mscActivityLed();
@@ -186,7 +275,7 @@ static int emfat_find_log(emfat_entry_t *entry, int maxCount, int flashfsUsedSpa
         }
 
         // The length of the previous record is now known
-        if (lastOffset != currOffset) {
+        if (lastOffset != -1) {
             // Record the previous entry
             emfat_add_log(entry++, fileNumber++, lastOffset, currOffset - lastOffset);
 
@@ -283,11 +372,18 @@ void emfat_init_files(void)
     }
 
 #ifdef USE_FLASHFS
+    if (pilotConfig()->name[0]) {
+        tfp_sprintf(craft_name, "_%s", pilotConfig()->name);
+        legalize_filename(craft_name);
+    } else {
+        craft_name[0] = 0;
+    }
+
     flashInit(flashConfig());
     flashfsInit();
     LED0_OFF;
 
-    flashfsUsedSpace = flashfsIdentifyStartOfFreeSpace();
+    flashfsUsedSpace = flashfsGetOffset();
 
     // Detect and create entries for each individual log
     const int logCount = emfat_find_log(&entries[PREDEFINED_ENTRY_COUNT], EMFAT_MAX_LOG_ENTRY, flashfsUsedSpace);
@@ -318,6 +414,6 @@ void emfat_init_files(void)
         emfat_set_entry_cma(entry);
     }
 
-    emfat_init(&emfat, "RTFL", entries);
+    emfat_init(&emfat, "RTFL       ", entries);
     LED0_OFF;
 }

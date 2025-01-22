@@ -335,6 +335,8 @@ static const blackboxSimpleFieldDefinition_t blackboxSlowFields[] = {
 typedef enum BlackboxState {
     BLACKBOX_STATE_DISABLED = 0,
     BLACKBOX_STATE_STOPPED,
+    BLACKBOX_STATE_WAIT_FOR_READY,
+    BLACKBOX_STATE_INITIAL_ERASE,
     BLACKBOX_STATE_PREPARE_LOG_FILE,
     BLACKBOX_STATE_SEND_HEADER,
     BLACKBOX_STATE_SEND_MAIN_FIELD_HEADER,
@@ -345,6 +347,7 @@ typedef enum BlackboxState {
     BLACKBOX_STATE_CACHE_FLUSH,
     BLACKBOX_STATE_PAUSED,
     BLACKBOX_STATE_RUNNING,
+    BLACKBOX_STATE_FULL,
     BLACKBOX_STATE_SHUTTING_DOWN,
     BLACKBOX_STATE_START_ERASE,
     BLACKBOX_STATE_ERASING,
@@ -1175,7 +1178,7 @@ static void blackboxStart(void)
     blackboxLastRescueState = getRescueState();
     blackboxLastAirborneState = isAirborne();
 
-    blackboxSetState(BLACKBOX_STATE_PREPARE_LOG_FILE);
+    blackboxSetState(BLACKBOX_STATE_WAIT_FOR_READY);
 }
 
 void blackboxCheckEnabler(void)
@@ -1502,14 +1505,28 @@ static char *blackboxGetStartDateTime(char *buf)
     return buf;
 }
 
-#ifndef BLACKBOX_PRINT_HEADER_LINE
-#define BLACKBOX_PRINT_HEADER_LINE(name, format, ...) case __COUNTER__: \
-                                                blackboxPrintfHeaderLine(name, format, __VA_ARGS__); \
-                                                break;
-#define BLACKBOX_PRINT_HEADER_LINE_CUSTOM(...) case __COUNTER__: \
-                                                    {__VA_ARGS__}; \
-                                               break;
-#endif
+#define BLACKBOX_PRINT_HEADER_LINE(name, format, ...) \
+    case __COUNTER__: { \
+        blackboxPrintfHeaderLine(name, format, __VA_ARGS__); \
+        break; \
+    }
+
+#define BLACKBOX_PRINT_HEADER_ARRAY(name, format, count, array) \
+    case __COUNTER__: { \
+        char *ptr = buf; \
+        for (int i=0; i<(count); i++) { \
+            if (i > 0) *ptr++ = ','; \
+            ptr += tfp_sprintf(ptr, format, array[i]); \
+        } \
+        blackboxPrintfHeaderLine(name, buf); \
+        break; \
+    }
+
+#define BLACKBOX_PRINT_HEADER_CUSTOM(...) \
+    case __COUNTER__: { \
+        { __VA_ARGS__ } \
+        break; \
+    }
 
 /**
  * Transmit a portion of the system information headers. Call the first time with xmitState.headerIndex == 0. Returns
@@ -1517,15 +1534,16 @@ static char *blackboxGetStartDateTime(char *buf)
  */
 static bool blackboxWriteSysinfo(void)
 {
+    char buf[128];
+
 #ifndef UNIT_TEST
     // Make sure we have enough room in the buffer for our longest line (as of this writing, the "Firmware date" line)
     if (blackboxDeviceReserveBufferSpace(64) != BLACKBOX_RESERVE_SUCCESS) {
         return false;
     }
 
-    char buf[128];  // datetime and rpm filter
-
     const controlRateConfig_t *currentControlRateProfile = controlRateProfiles(systemConfig()->activeRateProfile);
+
     switch (xmitState.headerIndex) {
         BLACKBOX_PRINT_HEADER_LINE("Firmware type", "%s",                   "Rotorflight");
         BLACKBOX_PRINT_HEADER_LINE("Firmware revision", "%s %s (%s) %s",    FC_FIRMWARE_NAME, FC_VERSION_STRING, shortGitRevision, targetName);
@@ -1544,7 +1562,7 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("acc_1G", "%u",                          acc.dev.acc_1G);
 #endif
 
-        BLACKBOX_PRINT_HEADER_LINE_CUSTOM(
+        BLACKBOX_PRINT_HEADER_CUSTOM(
             if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_VOLTAGE)) {
                 blackboxPrintfHeaderLine("vbat_scale", "%u",
                     voltageSensorADCConfig(VOLTAGE_SENSOR_ADC_BAT)->scale);
@@ -1558,7 +1576,7 @@ static bool blackboxWriteSysinfo(void)
                                                                             batteryConfig()->vbatmaxcellvoltage);
         BLACKBOX_PRINT_HEADER_LINE("vbatref", "%u",                         vbatReference);
 
-        BLACKBOX_PRINT_HEADER_LINE_CUSTOM(
+        BLACKBOX_PRINT_HEADER_CUSTOM(
             if (testBlackboxCondition(FLIGHT_LOG_FIELD_CONDITION_CURRENT)) {
                 blackboxPrintfHeaderLine("currentSensor", "%d,%d",
                     currentSensorADCConfig(CURRENT_SENSOR_ADC_BAT)->offset,
@@ -1572,22 +1590,11 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_FILTER_PROCESS_DENOM, "%d",   activeFilterLoopDenom);
 
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RATES_TYPE, "%d",             currentControlRateProfile->rates_type);
-        BLACKBOX_PRINT_HEADER_LINE("rc_rates", "%d,%d,%d",                  currentControlRateProfile->rcRates[ROLL],
-                                                                            currentControlRateProfile->rcRates[PITCH],
-                                                                            currentControlRateProfile->rcRates[YAW]);
-        BLACKBOX_PRINT_HEADER_LINE("rc_expo", "%d,%d,%d",                   currentControlRateProfile->rcExpo[ROLL],
-                                                                            currentControlRateProfile->rcExpo[PITCH],
-                                                                            currentControlRateProfile->rcExpo[YAW]);
-        BLACKBOX_PRINT_HEADER_LINE("rates", "%d,%d,%d",                     currentControlRateProfile->rates[ROLL],
-                                                                            currentControlRateProfile->rates[PITCH],
-                                                                            currentControlRateProfile->rates[YAW]);
-
-        BLACKBOX_PRINT_HEADER_LINE("response_time", "%d,%d,%d",             currentControlRateProfile->response_time[ROLL],
-                                                                            currentControlRateProfile->response_time[PITCH],
-                                                                            currentControlRateProfile->response_time[YAW]);
-        BLACKBOX_PRINT_HEADER_LINE("accel_limit", "%d,%d,%d",               currentControlRateProfile->accel_limit[ROLL],
-                                                                            currentControlRateProfile->accel_limit[PITCH],
-                                                                            currentControlRateProfile->accel_limit[YAW]);
+        BLACKBOX_PRINT_HEADER_ARRAY("rc_rates", "%d", 3,                    currentControlRateProfile->rcRates);
+        BLACKBOX_PRINT_HEADER_ARRAY("rc_expo", "%d", 3,                     currentControlRateProfile->rcExpo);
+        BLACKBOX_PRINT_HEADER_ARRAY("rates", "%d", 3,                       currentControlRateProfile->rates);
+        BLACKBOX_PRINT_HEADER_ARRAY("response_time", "%d", 3,               currentControlRateProfile->response_time);
+        BLACKBOX_PRINT_HEADER_ARRAY("accel_limit", "%d", 3,                 currentControlRateProfile->accel_limit);
 
         BLACKBOX_PRINT_HEADER_LINE("rollPID", "%d,%d,%d,%d,%d",             currentPidProfile->pid[PID_ROLL].P,
                                                                             currentPidProfile->pid[PID_ROLL].I,
@@ -1623,12 +1630,8 @@ static bool blackboxWriteSysinfo(void)
                                                                             currentPidProfile->dterm_cutoff[PID_YAW],
                                                                             currentPidProfile->bterm_cutoff[PID_YAW]);
         BLACKBOX_PRINT_HEADER_LINE("iterm_relax_type", "%d",                currentPidProfile->iterm_relax_type);
-        BLACKBOX_PRINT_HEADER_LINE("iterm_relax_cutoff", "%d,%d,%d",        currentPidProfile->iterm_relax_cutoff[0],
-                                                                            currentPidProfile->iterm_relax_cutoff[1],
-                                                                            currentPidProfile->iterm_relax_cutoff[2]);
-        BLACKBOX_PRINT_HEADER_LINE("error_limit", "%d,%d,%d",               currentPidProfile->error_limit[0],
-                                                                            currentPidProfile->error_limit[1],
-                                                                            currentPidProfile->error_limit[2]);
+        BLACKBOX_PRINT_HEADER_ARRAY("iterm_relax_cutoff", "%d", 3,          currentPidProfile->iterm_relax_cutoff);
+        BLACKBOX_PRINT_HEADER_ARRAY("error_limit", "%d", 3,                 currentPidProfile->error_limit);
         BLACKBOX_PRINT_HEADER_LINE("error_decay", "%d,%d",                  currentPidProfile->error_decay_time_cyclic,
                                                                             currentPidProfile->error_decay_limit_cyclic);
         BLACKBOX_PRINT_HEADER_LINE("error_decay_ground", "%d",              currentPidProfile->error_decay_time_ground);
@@ -1681,42 +1684,27 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_DSHOT_BIDIR, "%d",            motorConfig()->dev.useDshotTelemetry);
 #endif
 #ifdef USE_RPM_FILTER
-        BLACKBOX_PRINT_HEADER_LINE_CUSTOM(
-            char *ptr = buf;
-            for (int i=0; i<RPM_FILTER_BANK_COUNT; i++) {
-                if (i > 0)
-                    *ptr++ = ',';
-                ptr += tfp_sprintf(ptr, "%d", rpmFilterConfig()->filter_bank_rpm_source[i]);
-            }
-            blackboxPrintfHeaderLine("gyro_rpm_filter_bank_rpm_source", buf);
-        );
-        BLACKBOX_PRINT_HEADER_LINE_CUSTOM(
-            char *ptr = buf;
-            for (int i=0; i<RPM_FILTER_BANK_COUNT; i++) {
-                if (i > 0)
-                    *ptr++ = ',';
-                ptr += tfp_sprintf(ptr, "%d", rpmFilterConfig()->filter_bank_rpm_ratio[i]);
-            }
-            blackboxPrintfHeaderLine("gyro_rpm_filter_bank_rpm_ratio", buf);
-        );
-        BLACKBOX_PRINT_HEADER_LINE_CUSTOM(
-            char *ptr = buf;
-            for (int i=0; i<RPM_FILTER_BANK_COUNT; i++) {
-                if (i > 0)
-                    *ptr++ = ',';
-                ptr += tfp_sprintf(ptr, "%d", rpmFilterConfig()->filter_bank_rpm_limit[i]);
-            }
-            blackboxPrintfHeaderLine("gyro_rpm_filter_bank_rpm_limit", buf);
-        );
-        BLACKBOX_PRINT_HEADER_LINE_CUSTOM(
-            char *ptr = buf;
-            for (int i=0; i<RPM_FILTER_BANK_COUNT; i++) {
-                if (i > 0)
-                    *ptr++ = ',';
-                ptr += tfp_sprintf(ptr, "%d", rpmFilterConfig()->filter_bank_notch_q[i]);
-            }
-            blackboxPrintfHeaderLine("gyro_rpm_filter_bank_notch_q", buf);
-        );
+        BLACKBOX_PRINT_HEADER_LINE("gyro_rpm_notch_preset", "%d",           rpmFilterConfig()->preset);
+        BLACKBOX_PRINT_HEADER_LINE("gyro_rpm_notch_min_hz", "%d",           rpmFilterConfig()->min_hz);
+
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_source_pitch", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_source[FD_PITCH]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_center_pitch", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_center[FD_PITCH]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_q_pitch", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_q[FD_PITCH]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_source_roll", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_source[FD_ROLL]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_center_roll", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_center[FD_ROLL]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_q_roll", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_q[FD_ROLL]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_source_yaw", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_source[FD_YAW]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_center_yaw", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_center[FD_YAW]);
+        BLACKBOX_PRINT_HEADER_ARRAY("gyro_rpm_notch_q_yaw", "%d",
+            RPM_FILTER_NOTCH_COUNT, rpmFilterConfig()->custom.notch_q[FD_YAW]);
 #endif
 #if defined(USE_ACC)
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_ACC_LPF_HZ, "%d",             accelerometerConfig()->acc_lpf_hz * 100);
@@ -1987,6 +1975,15 @@ bool isBlackboxErased(void)
     return isBlackboxDeviceReady();
 }
 
+void blackboxInitialErase(void)
+{
+#ifdef USE_FLASHFS
+    if (blackboxConfig()->device == BLACKBOX_DEVICE_FLASH) {
+        blackboxDeviceInitialErase();
+    }
+#endif
+}
+
 /**
  * Call each flight loop iteration to perform blackbox logging.
  */
@@ -2006,6 +2003,17 @@ void blackboxUpdate(timeUs_t currentTimeUs)
         if (blackboxIsLoggingEnabled()) {
             blackboxOpen();
             blackboxStart();
+        }
+        break;
+    case BLACKBOX_STATE_WAIT_FOR_READY:
+        if (isBlackboxDeviceReady()) {
+            blackboxInitialErase();
+            blackboxSetState(BLACKBOX_STATE_INITIAL_ERASE);
+        }
+        break;
+    case BLACKBOX_STATE_INITIAL_ERASE:
+        if (isBlackboxDeviceReady()) {
+            blackboxSetState(BLACKBOX_STATE_PREPARE_LOG_FILE);
         }
         break;
     case BLACKBOX_STATE_PREPARE_LOG_FILE:
@@ -2153,7 +2161,13 @@ void blackboxUpdate(timeUs_t currentTimeUs)
             blackboxSetState(BLACKBOX_STATE_STOPPED);
             blackboxStarted = false;
         }
-    break;
+        break;
+    case BLACKBOX_STATE_FULL:
+        if (!blackboxIsLoggingEnabled()) {
+            blackboxDeviceClose();
+            blackboxSetState(BLACKBOX_STATE_STOPPED);
+        }
+        break;
 #endif
     default:
         break;
@@ -2161,8 +2175,8 @@ void blackboxUpdate(timeUs_t currentTimeUs)
 
     // Did we run out of room on the device? Stop!
     if (isBlackboxDeviceFull()) {
-        if (blackboxState < BLACKBOX_STATE_START_ERASE) {
-            blackboxSetState(BLACKBOX_STATE_STOPPED);
+        if (blackboxState == BLACKBOX_STATE_RUNNING) {
+            blackboxSetState(BLACKBOX_STATE_FULL);
         }
     }
 }

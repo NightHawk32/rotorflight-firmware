@@ -31,6 +31,14 @@
 #define FAST_CODE_NOINLINE
 #define FAST_DATA_ZERO_INIT
 #define FAST_DATA
+#define INIT_CODE
+#define INIT_ZERO  { 0, }
+
+#define DMA_DATA_ZERO_INIT
+#define DMA_DATA
+#define STATIC_DMA_DATA_AUTO        static
+
+#define	__unused	__attribute__((__unused__))
 
 #define PID_PROFILE_COUNT 3
 #define CONTROL_RATE_PROFILE_COUNT  6

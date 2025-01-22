@@ -43,6 +43,8 @@ typedef struct blackboxConfig_s {
     uint8_t     mode;
     uint16_t    denom;
     uint32_t    fields;
+    uint16_t    initialEraseFreeSpaceKiB;
+    uint8_t     rollingErase;
 } blackboxConfig_t;
 
 PG_DECLARE(blackboxConfig_t, blackboxConfig);
