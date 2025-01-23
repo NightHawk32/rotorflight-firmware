@@ -3375,6 +3375,8 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
     XDFLY_PARAM_CAPACITY_CORR,
     XDFLY_PARAM_MOTOR_POLES,
     XDFLY_PARAM_SMART_FAN,
+    XDFLY_VALID_1,
+    XDFLY_VALID_2,
     XDFLY_PARAM_COUNT
 };
 
@@ -3498,13 +3500,22 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
                         xdflyParamCached[i] = false;
                         xdflyParamsAcitve[i] = false;
                     }
+                    xdflyParams[XDFLY_VALID_1] = 0;
+                    xdflyParams[XDFLY_VALID_2] = 0;
                     return true;
                 }else if(buffer[3] == xdflyParamIndex || (buffer[3] == 0x0F && xdflyParamIndex == 0)){
                     xdflyParamCached[xdflyParamIndex] = true;
-                    xdflyParams[xdflyParamIndex] = buffer[4] << 8 | buffer[5];
+                    xdflyParams[xdflyParamIndex] = (buffer[4] << 8 | buffer[5]) & 0x7FFF;
                     xdflyParamsAcitve[xdflyParamIndex] = buffer[4] & 0x80;
                     xdflyParamIndex++;
                     if(xdflyParamIndex == XDFLY_PARAM_COUNT){
+                        for(uint8_t i = 0; i < XDFLY_PARAM_COUNT-2; i++){
+                            if(i < 16){
+                                xdflyParams[XDFLY_VALID_1] |=  xdflyParamsAcitve[i] << i;
+                            }else{
+                                xdflyParams[XDFLY_VALID_2] |=  xdflyParamsAcitve[i] << (i - 16);
+                            }
+                        }
                         xdflySetupStatus = XDFLY_PARAMSREADY;
                         paramPayloadLength = XDFLY_PARAM_COUNT * 2;
                         memcpy(paramPayload, xdflyParams, paramPayloadLength);
