@@ -3352,9 +3352,10 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
 #define XDFLY_PARAM_FRAME_TIMEOUT           200
 
 #define XDFLY_CMD_HANDSHAKE                 0x03
-#define XDFLY_CMD_HANDSHAKE_RESPONSE        0xCD
+#define XDFLY_CMD_RESPONSE                   0xCD
 #define XDFLY_CMD_SET_PARAM                 0x34
 #define XDFLY_CMD_GET_PARAM                 0x33
+#define XDFLY_NUM_VALIDITY_FIELDS           2
 
  enum {
     XDFLY_PARAM_MODEL = 0,
@@ -3374,6 +3375,7 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
     XDFLY_PARAM_SR_FUNC,
     XDFLY_PARAM_CAPACITY_CORR,
     XDFLY_PARAM_MOTOR_POLES,
+    XDLFY_PARAM_LED_COL,
     XDFLY_PARAM_SMART_FAN,
     XDFLY_VALID_1,
     XDFLY_VALID_2,
@@ -3381,8 +3383,8 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
 };
 
 uint16_t xdflyParams[XDFLY_PARAM_COUNT] = {0};
-bool xdflyParamsAcitve[XDFLY_PARAM_COUNT] = {0};
-bool xdflyParamCached[XDFLY_PARAM_COUNT] = {0};
+bool xdflyParamsActive[XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS] = {0};
+bool xdflyParamCached[XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS] = {0};
 
 typedef enum {
     XDFLY_INIT = 0,
@@ -3487,7 +3489,7 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
         // decode
         switch (buffer[2]) {
             case XDFLY_CMD_HANDSHAKE:
-            case XDFLY_CMD_HANDSHAKE_RESPONSE: //fix for header issues
+            case XDFLY_CMD_RESPONSE: //fix for header issues
                 if(buffer[3] == 0x00 && buffer[4] == 0x55 && buffer[5] == 0x55){
                     rrfsmFramePeriod = 0;
                     xdflyHandshakeTimestamp = currentTimeUs;
@@ -3496,9 +3498,9 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
                     rrfsmInvalidateReq();
                     xdflySetupStatus = XDFLY_CACHE_PARAMS;
                     xdflyParamIndex = 0; //invalidate cache
-                    for(uint8_t i = 0; i < XDFLY_PARAM_COUNT; i++){
+                    for(uint8_t i = 0; i < XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS; i++){
                         xdflyParamCached[i] = false;
-                        xdflyParamsAcitve[i] = false;
+                        xdflyParamsActive[i] = false;
                     }
                     xdflyParams[XDFLY_VALID_1] = 0;
                     xdflyParams[XDFLY_VALID_2] = 0;
@@ -3506,14 +3508,14 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
                 }else if(buffer[3] == xdflyParamIndex || (buffer[3] == 0x0F && xdflyParamIndex == 0)){
                     xdflyParamCached[xdflyParamIndex] = true;
                     xdflyParams[xdflyParamIndex] = (buffer[4] << 8 | buffer[5]) & 0x7FFF;
-                    xdflyParamsAcitve[xdflyParamIndex] = buffer[4] & 0x80;
+                    xdflyParamsActive[xdflyParamIndex] = buffer[4] & 0x80;
                     xdflyParamIndex++;
-                    if(xdflyParamIndex == XDFLY_PARAM_COUNT){
+                    if(xdflyParamIndex == XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS){
                         for(uint8_t i = 0; i < XDFLY_PARAM_COUNT-2; i++){
                             if(i < 16){
-                                xdflyParams[XDFLY_VALID_1] |=  xdflyParamsAcitve[i] << i;
+                                xdflyParams[XDFLY_VALID_1] |=  xdflyParamsActive[i] << i;
                             }else{
-                                xdflyParams[XDFLY_VALID_2] |=  xdflyParamsAcitve[i] << (i - 16);
+                                xdflyParams[XDFLY_VALID_2] |=  xdflyParamsActive[i] << (i - 16);
                             }
                         }
                         xdflySetupStatus = XDFLY_PARAMSREADY;
@@ -3540,7 +3542,7 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
 
         if(xdflySetupStatus == XDFLY_CACHE_PARAMS){
             if(!xdflyParamCached[xdflyParamIndex]){
-                //check for timeout
+                //send the request right after we got telemetry to avoid colision
                 xdflyBuildReq(XDFLY_CMD_GET_PARAM , &xdflyParamIndex , 1, 0);
             }                
         }
