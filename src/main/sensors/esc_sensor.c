@@ -3360,7 +3360,7 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
  enum {
     XDFLY_PARAM_MODEL = 0,
     XDFLY_PARAM_MODE,
-    XDFLY_PARAM_DIRECTION,
+    XDFLY_PARAM_CUTOFF,
     XDFLY_PARAM_TIMING,
     XDFLY_PARAM_LV_BEC_VOLT,
     XDFLY_PARAM_ROTATION_DIR,
@@ -3391,6 +3391,7 @@ typedef enum {
     XDFLY_CACHE_PARAMS,
     XDFLY_PARAMSREADY,
     XDFLY_WAIT_FOR_HANDSHAKE,
+    XDFLY_WRITE_PARAMS,
 } xdflySetupStatus_e;
 
 static xdflySetupStatus_e xdflySetupStatus = XDFLY_INIT;
@@ -3400,6 +3401,7 @@ static bool xdflySendHandshake = false;
 static bool xdflyHandshakeResponsePending = false;
 static timeMs_t xdflyHandshakeTimestamp = 0;
 static int xdflyParamIndex = 0;
+static int xdflyWriteParamIndex = 0;
 
 static void xdflySensorProcess(timeUs_t currentTimeUs)
 {
@@ -3449,7 +3451,7 @@ static void xdflySensorProcess(timeUs_t currentTimeUs)
     checkFrameTimeout(currentTimeUs, 500000);
 }
 
-static void xdflyBuildReq(uint8_t cmd, void *data, uint16_t framePeriod, uint16_t frameTimeout)
+static void xdflyBuildReq(uint8_t cmd, int *paramIdx, uint16_t framePeriod, uint16_t frameTimeout)
 {
     uint8_t idx = 0;
     reqbuffer[idx++] = XDFLY_SYNC;
@@ -3460,11 +3462,16 @@ static void xdflyBuildReq(uint8_t cmd, void *data, uint16_t framePeriod, uint16_
         reqbuffer[idx++] = 0;
         reqbuffer[idx++] = 0;
     }else if(cmd == XDFLY_CMD_GET_PARAM) {
-        memcpy(reqbuffer + idx, data, XDFLY_PAYLOAD_LENGTH);
+        memcpy(reqbuffer + idx, paramIdx, XDFLY_PAYLOAD_LENGTH);
         idx++;
         reqbuffer[idx++] = 0;
         reqbuffer[idx++] = 0;
-    }    
+    } else if(cmd == XDFLY_CMD_SET_PARAM) {
+        memcpy(reqbuffer + idx, paramIdx, XDFLY_PAYLOAD_LENGTH);
+        idx++;
+        reqbuffer[idx++] = paramUpdPayload[(*paramIdx)*2+1] | 0x80; //mark as active
+        reqbuffer[idx++] = paramUpdPayload[(*paramIdx)*2];
+    }   
     uint8_t crclen = idx;
     uint16_t crc16 = calculateCRC16_MODBUS(reqbuffer, crclen);
     reqbuffer[idx++] = crc16 >> 8;
@@ -3473,6 +3480,31 @@ static void xdflyBuildReq(uint8_t cmd, void *data, uint16_t framePeriod, uint16_
     reqLength = idx;
     rrfsmFramePeriod = framePeriod;
     rrfsmFrameTimeout = frameTimeout;
+}
+
+static void xdflyGetNextParam()
+{
+    if(!xdflyParamCached[xdflyParamIndex]){
+        xdflyBuildReq(XDFLY_CMD_GET_PARAM , &xdflyParamIndex , 1, 0);
+    }
+}
+
+static void xdflyWriteNextParam()
+{
+    xdflyBuildReq(XDFLY_CMD_SET_PARAM , &xdflyWriteParamIndex , 1, 0);
+}
+
+static void xdflyStartCachingParams()
+{
+    xdflySetupStatus = XDFLY_CACHE_PARAMS;
+    xdflyParamIndex = 0; //invalidate cache
+    for(uint8_t i = 0; i < XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS; i++){
+        xdflyParamCached[i] = false;
+        xdflyParamsActive[i] = false;
+    }
+    xdflyParams[XDFLY_VALID_1] = 0;
+    xdflyParams[XDFLY_VALID_2] = 0;
+    xdflyGetNextParam();
 }
 
 static bool xdflyDecode(timeUs_t currentTimeUs)
@@ -3489,21 +3521,28 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
         // decode
         switch (buffer[2]) {
             case XDFLY_CMD_HANDSHAKE:
-            case XDFLY_CMD_RESPONSE: //fix for header issues
+            case XDFLY_CMD_RESPONSE:
                 if(buffer[3] == 0x00 && buffer[4] == 0x55 && buffer[5] == 0x55){
                     rrfsmFramePeriod = 0;
                     xdflyHandshakeTimestamp = currentTimeUs;
                     xdflyHandshakeResponsePending = false;
                     xdflyConnected = true;
                     rrfsmInvalidateReq();
-                    xdflySetupStatus = XDFLY_CACHE_PARAMS;
-                    xdflyParamIndex = 0; //invalidate cache
-                    for(uint8_t i = 0; i < XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS; i++){
-                        xdflyParamCached[i] = false;
-                        xdflyParamsActive[i] = false;
-                    }
-                    xdflyParams[XDFLY_VALID_1] = 0;
-                    xdflyParams[XDFLY_VALID_2] = 0;
+                    xdflyStartCachingParams();
+                    return true;
+                }else if(xdflySetupStatus == XDFLY_WRITE_PARAMS){
+                    //response to our write request
+                    if(buffer[3] == xdflyWriteParamIndex){
+                        xdflyWriteParamIndex++;
+                        while (xdflyWriteParamIndex < XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS && !xdflyParamsActive[xdflyWriteParamIndex]){
+                            xdflyWriteParamIndex++;
+                        }
+                    } 
+                    if(xdflyWriteParamIndex >= XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS){
+                        xdflyStartCachingParams();
+                    }else{
+                        xdflyWriteNextParam();
+                    }                   
                     return true;
                 }else if(buffer[3] == xdflyParamIndex || (buffer[3] == 0x0F && xdflyParamIndex == 0)){
                     xdflyParamCached[xdflyParamIndex] = true;
@@ -3522,11 +3561,10 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
                         paramPayloadLength = XDFLY_PARAM_COUNT * 2;
                         memcpy(paramPayload, xdflyParams, paramPayloadLength);
                     }
+                    xdflyGetNextParam(); 
+                    return true;
                 }
                 break;
-            case XDFLY_CMD_SET_PARAM:
-                //return xdflyDecodeWriteResp();
-            case XDFLY_CMD_GET_PARAM:
 
             default:
                 return false;
@@ -3537,18 +3575,26 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
 
         if (buffer[2] != XDFLY_TELEM_FRAME_LENGTH)
             return false;
-
         xdflySensorProcess(currentTimeUs);
 
         if(xdflySetupStatus == XDFLY_CACHE_PARAMS){
-            if(!xdflyParamCached[xdflyParamIndex]){
-                //send the request right after we got telemetry to avoid colision
-                xdflyBuildReq(XDFLY_CMD_GET_PARAM , &xdflyParamIndex , 1, 0);
-            }                
+            xdflyGetNextParam();               
+        }else if(xdflySetupStatus == XDFLY_WRITE_PARAMS){
+            //wait for the next frame and start writing the next param
+            xdflyWriteNextParam();
         }
         return true;
     }
     return false;    
+}
+
+static bool xdflyParamCommit(uint8_t cmd)
+{
+    //start from 1, we won't be writing FW version back
+    xdflyWriteParamIndex = 1;
+    xdflySetupStatus = XDFLY_WRITE_PARAMS;
+    UNUSED(cmd);
+    return true; 
 }
 
 static bool xdflyCrankUncSetup(timeUs_t currentTimeUs)
@@ -3579,6 +3625,8 @@ static bool xdflyCrankUncSetup(timeUs_t currentTimeUs)
             break;
         case XDFLY_PARAMSREADY:
             //wait for param changes
+            break;
+        case XDFLY_WRITE_PARAMS:
             break;
     }
     return true;
@@ -3768,6 +3816,7 @@ bool INIT_CODE escSensorInit(void)
             rrfsmDecode = xdflyDecode;
             callback = rrfsmDataReceive;
             rrfsmAccept = xdflyAccept;
+            paramCommit = xdflyParamCommit;
             escSig = ESC_SIG_XDFLY;
             break;
         case ESC_SENSOR_PROTO_RECORD:
