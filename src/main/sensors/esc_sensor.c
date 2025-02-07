@@ -3352,14 +3352,14 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
 #define XDFLY_PARAM_FRAME_TIMEOUT           200
 
 #define XDFLY_CMD_HANDSHAKE                 0x03
-#define XDFLY_CMD_RESPONSE                   0xCD
+#define XDFLY_CMD_RESPONSE                  0xCD
 #define XDFLY_CMD_SET_PARAM                 0x34
 #define XDFLY_CMD_GET_PARAM                 0x33
 #define XDFLY_NUM_VALIDITY_FIELDS           2
 
  enum {
     XDFLY_PARAM_MODEL = 0,
-    XDFLY_PARAM_MODE,
+    XDFLY_PARAM_GOV_MODE,
     XDFLY_PARAM_CUTOFF,
     XDFLY_PARAM_TIMING,
     XDFLY_PARAM_LV_BEC_VOLT,
@@ -3534,10 +3534,12 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
                     //response to our write request
                     if(buffer[3] == xdflyWriteParamIndex){
                         xdflyWriteParamIndex++;
+                        //only write params which are marked as active
                         while (xdflyWriteParamIndex < XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS && !xdflyParamsActive[xdflyWriteParamIndex]){
                             xdflyWriteParamIndex++;
                         }
                     } 
+                    //all params written?
                     if(xdflyWriteParamIndex >= XDFLY_PARAM_COUNT-XDFLY_NUM_VALIDITY_FIELDS){
                         xdflyStartCachingParams();
                     }else{
@@ -3580,7 +3582,7 @@ static bool xdflyDecode(timeUs_t currentTimeUs)
         if(xdflySetupStatus == XDFLY_CACHE_PARAMS){
             xdflyGetNextParam();               
         }else if(xdflySetupStatus == XDFLY_WRITE_PARAMS){
-            //wait for the next frame and start writing the next param
+            //wait for the next frame and start writing after telem frmae
             xdflyWriteNextParam();
         }
         return true;
