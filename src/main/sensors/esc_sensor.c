@@ -521,8 +521,20 @@ static float calcTempNTC(uint16_t adc, float gamma, float delta)
  *    - Serial protocol 19200,8N1
  *    - Frame rate running:20Hz idle:2.5Hz
  *    - Big-Endian fields
+ * 
+ * Data Frame Format Type 1
+ * ――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+ *     0:       Sync 0x9B
+ *   1-3:       Packet counter
+ *   4-5:       Throttle %
+ *   6-8:       RPM
+ *  9-11:       Voltage ADC
+ * 12-13:       Current ADC
+ * 14-15:       Temperature ADC (FET)
+ * 16-17:       Temperature ADC (CAP)
+ *    18:       Sync 0xB9
  *
- * Data Frame Format
+ * Data Frame Format Type 2
  * ――――――――――――――――――――――――――――――――――――――――――――――――――――――――
  *     0:       Sync 0x9B
  *   1-3:       Packet counter
@@ -533,7 +545,6 @@ static float calcTempNTC(uint16_t adc, float gamma, float delta)
  * 13-14:       Current ADC
  * 15-16:       Temperature ADC (FET)
  * 17-18:       Temperature ADC (CAP)
- *    19:       Sync 0xB9 (present only in slow rate)
  *
  * Info Frame Format
  * ――――――――――――――――――――――――――――――――――――――――――――――――――――――――
@@ -636,8 +647,58 @@ static void hw4SensorProcess(timeUs_t currentTimeUs)
         const uint8_t frameType = processHW4TelemetryStream(serialRead(escSensorPort));
 
         if (frameType == HW4_FRAME_DATA) {
-            if (buffer[4] < 4 && buffer[6] < 4 && buffer[11] < 0x10 &&
+            //if last byte is 0xB9, we got type 1 frame
+            if (buffer[4] < 4 && buffer[10] < 0x10 &&
+                buffer[12] < 0x0D && buffer[14] < 0x0D && buffer[16] < 0x10 && buffer[18] == 0xB9) {
+
+                //uint32_t cnt = buffer[1] << 16 | buffer[2] << 8 | buffer[3];
+                uint16_t thr = buffer[4] << 8 | buffer[5];
+                uint32_t rpm = buffer[6] << 16 | buffer[7] << 8 | buffer[8];
+                uint16_t Vadc = buffer[9] << 16 | buffer[10] << 8 | buffer[11];
+                uint16_t Iadc = buffer[12] << 8 | buffer[13];
+                uint16_t Tadc = buffer[14] << 8 | buffer[15];
+                uint16_t Cadc = buffer[16] << 8 | buffer[17];
+
+                float voltage = calcVoltHW(Vadc);
+                float current = calcCurrHW(Iadc);
+                float tempFET = calcTempHW(Tadc);
+                float tempCAP = calcTempHW(Cadc);
+
+                // When throttle changes to zero, the last current reading is
+                // repeated until the motor has totally stopped.
+                if (thr == 0) {
+                    current = 0;
+                }
+
+                setConsumptionCurrent(current);
+
+                escSensorData[0].id = ESC_SIG_HW4;
+                escSensorData[0].age = 0;
+                escSensorData[0].erpm = rpm;
+                escSensorData[0].throttle = thr;
+                escSensorData[0].voltage = applyVoltageCorrection(lrintf(voltage * 1000));
+                escSensorData[0].current = applyCurrentCorrection(lrintf(current * 1000));
+                escSensorData[0].temperature = lrintf(tempFET * 10);
+                escSensorData[0].temperature2 = lrintf(tempCAP * 10);
+
+                DEBUG(ESC_SENSOR, DEBUG_ESC_1_RPM, rpm);
+                DEBUG(ESC_SENSOR, DEBUG_ESC_1_TEMP, lrintf(tempFET * 10));
+                DEBUG(ESC_SENSOR, DEBUG_ESC_1_VOLTAGE, lrintf(voltage * 100));
+                DEBUG(ESC_SENSOR, DEBUG_ESC_1_CURRENT, lrintf(current * 100));
+
+                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_RPM, rpm);
+                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_TEMP, Tadc);
+                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_VOLTAGE, Vadc);
+                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_CURRENT, Iadc);
+                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_EXTRA, thr);
+                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_AGE, 0);
+
+                dataUpdateUs = currentTimeUs;
+
+                totalFrameCount++;
+            }else if (buffer[4] < 4 && buffer[6] < 4 && buffer[11] < 0x10 &&
                 buffer[13] < 0x10 && buffer[15] < 0x10 && buffer[17] < 0x10) {
+                //if last byte is not 0xB9, we got type 2 frame
 
                 //uint32_t cnt = buffer[1] << 16 | buffer[2] << 8 | buffer[3];
                 uint16_t thr = buffer[4] << 8 | buffer[5];
