@@ -474,14 +474,67 @@ static void mixerUpdateSwash(void)
                 setServoOutput(1, SR);
                 setServoOutput(2, SC);
                 break;
+
+            case SWASH_TYPE_QUAD:
+                // ensure min value for each motor
+                // make sure that at max and min the relation between motors is correct
+                if (ARMING_FLAG(ARMED)) {
+                    float motor[4] = {
+                        ST - SR * 0.5f + SP * 0.5f + SY * 0.5f,   //br cw
+                        ST - SR * 0.5f - SP * 0.5f - SY * 0.5f,   //fr ccw
+                        ST + SR * 0.5f + SP * 0.5f - SY * 0.5f,   //bl ccw
+                        ST + SR * 0.5f - SP * 0.5f + SY * 0.5f};  //fl cw
+
+                    // Find min and max motor values
+                    float minMotor = motor[0], maxMotor = motor[0];
+                    for (uint8_t i = 1; i < 4; i++) {
+                        if (motor[i] > maxMotor) {
+                            maxMotor = motor[i];
+                        }
+                        if (motor[i] < minMotor) {
+                            minMotor = motor[i];
+                        }
+                    }
+
+                    // Shift the outputs upward so that the minimum becomes mixer.tailMotorIdle
+                    if (minMotor < mixer.tailMotorIdle) {
+                        float shift = mixer.tailMotorIdle - minMotor;
+                        for (int i = 0; i < 4; i++) {
+                            motor[i] += shift;
+                        }
+                        maxMotor += shift;
+                    }
+
+                    // Scale down the outputs if the maximum is greater than 1
+                    if (maxMotor > 1.0f) {
+                        float scale = 1.0f / maxMotor;
+                        for (int i = 0; i < 4; i++) {
+                            motor[i] *= scale;
+                        }
+                    }
+
+                    // Ensure each motor output is clamped between mixer.tailMotorIdle and 1
+                    for (int i = 0; i < 4; i++){
+                        motor[i] = constrainf(motor[i], mixer.tailMotorIdle, 1.0f);
+                        setMotorOutput(i, motor[i]);
+                    }
+                } else {
+                    for (int i = 0; i < 4; i++){
+                        setMotorOutput(i, 0);
+                    }
+                }
+                
+                break;
         }
 
-        setMotorOutput(0, ST);
+        if(mixerConfig()->swash_type != SWASH_TYPE_QUAD){  
+            setMotorOutput(0, ST);
 
-        if (mixerMotorizedTail())
-            setMotorOutput(1, SY);
-        else
-            setServoOutput(3, SY + TC);
+            if (mixerMotorizedTail())
+                setMotorOutput(1, SY);
+            else
+                setServoOutput(3, SY + TC);
+        }
     }
 }
 
@@ -708,14 +761,36 @@ void INIT_CODE mixerInit(void)
                 addServoMapping(MIXER_IN_STABILIZED_ROLL, 1);
                 addServoMapping(MIXER_IN_STABILIZED_COLLECTIVE, 2);
                 break;
+
+            case SWASH_TYPE_QUAD:
+                addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 0);
+                addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 1);
+                addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 2);
+                addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 3);
+                addMotorMapping(MIXER_IN_STABILIZED_PITCH, 0);
+                addMotorMapping(MIXER_IN_STABILIZED_PITCH, 1);
+                addMotorMapping(MIXER_IN_STABILIZED_PITCH, 2);
+                addMotorMapping(MIXER_IN_STABILIZED_PITCH, 3);
+                addMotorMapping(MIXER_IN_STABILIZED_ROLL, 0);
+                addMotorMapping(MIXER_IN_STABILIZED_ROLL, 1);
+                addMotorMapping(MIXER_IN_STABILIZED_ROLL, 2);
+                addMotorMapping(MIXER_IN_STABILIZED_ROLL, 3);
+                addMotorMapping(MIXER_IN_STABILIZED_YAW, 0);
+                addMotorMapping(MIXER_IN_STABILIZED_YAW, 1);
+                addMotorMapping(MIXER_IN_STABILIZED_YAW, 2);
+                addMotorMapping(MIXER_IN_STABILIZED_YAW, 3);
+                break;
+            
         }
 
-        addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 0);
+        if (mixerConfig()->swash_type != SWASH_TYPE_QUAD) {
+            addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 0);
 
-        if (mixerMotorizedTail())
-            addMotorMapping(MIXER_IN_STABILIZED_YAW, 1);
-        else
-            addServoMapping(MIXER_IN_STABILIZED_YAW, 3);
+            if (mixerMotorizedTail())
+                addMotorMapping(MIXER_IN_STABILIZED_YAW, 1);
+            else
+                addServoMapping(MIXER_IN_STABILIZED_YAW, 3);
+        }
     }
 
     for (int i = 0; i < MIXER_RULE_COUNT; i++)

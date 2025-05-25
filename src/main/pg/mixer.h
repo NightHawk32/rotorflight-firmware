@@ -30,6 +30,7 @@ enum {
     SWASH_TYPE_140,
     SWASH_TYPE_90L,
     SWASH_TYPE_90V,
+    SWASH_TYPE_QUAD
 };
 
 enum {

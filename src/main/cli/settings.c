@@ -486,7 +486,7 @@ const char * const lookupTableRescueMode[] = {
 };
 
 const char * const lookupTableSwashType[] = {
-    "NONE", "PASSTHROUGH", "CP120", "CP135", "CP140", "FP90L", "FP90V",
+    "NONE", "PASSTHROUGH", "CP120", "CP135", "CP140", "FP90L", "FP90V", "QUAD",
 };
 
 const char * const lookupTableDtermMode[] = {
