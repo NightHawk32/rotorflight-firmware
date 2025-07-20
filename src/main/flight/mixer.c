@@ -62,6 +62,8 @@ typedef struct {
     int16_t         override[MIXER_INPUT_COUNT];
     uint16_t        saturation[MIXER_INPUT_COUNT];
 
+    float           quadMotorIdle;
+
     float           tailCenterTrim;
     float           tailMotorIdle;
     int8_t          tailMotorDirection;
@@ -513,9 +515,9 @@ static void mixerUpdateSwash(void)
                         }
                     }
 
-                    // Ensure each motor output is clamped between mixer.tailMotorIdle and 1
+                    // Ensure each motor output is clamped between mixer.quad_motor_idle and 1
                     for (int i = 0; i < 4; i++){
-                        motor[i] = constrainf(motor[i], mixer.tailMotorIdle, 1.0f);
+                        motor[i] = constrainf(motor[i], mixer.quadMotorIdle, 1.0f);
                         setMotorOutput(i, motor[i]);
                     }
                 } else {
@@ -692,6 +694,8 @@ void INIT_CODE mixerInitConfig(void)
 
     mixer.tailMotorIdle = mixerConfig()->tail_motor_idle / 1000.0f;
     mixer.tailCenterTrim = mixerConfig()->tail_center_trim / 1000.0f;
+
+    mixer.quadMotorIdle = mixerConfig()->quad_motor_idle / 1000.0f;
 }
 
 static void INIT_CODE setMapping(uint8_t in, uint8_t out)
