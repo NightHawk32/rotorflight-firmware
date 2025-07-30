@@ -764,6 +764,110 @@ static bool mspCommonProcessOutCommand(int16_t cmdMSP, sbuf_t *dst, mspPostProce
         sbufWriteString(dst, version);
         break;
 
+    case MSP_FBL_CONFIG:
+        // FC_VERSION
+        sbufWriteU8(dst, FC_VERSION_MAJOR);
+        sbufWriteU8(dst, FC_VERSION_MINOR);
+        sbufWriteU8(dst, FC_VERSION_PATCH_LEVEL);
+        
+        // UID
+        sbufWriteU32(dst, U_ID_0);
+        sbufWriteU32(dst, U_ID_1);
+        sbufWriteU32(dst, U_ID_2);
+        
+        // NAME
+        {
+            const int nameLen = strlen(pilotConfig()->name);
+            for (int i = 0; i < nameLen; i++) {
+                sbufWriteU8(dst, pilotConfig()->name[i]);
+            }
+        }
+        
+        // GOVERNOR_CONFIG
+        sbufWriteU8(dst, governorConfig()->gov_mode);
+        sbufWriteU16(dst, governorConfig()->gov_startup_time);
+        sbufWriteU16(dst, governorConfig()->gov_spoolup_time);
+        sbufWriteU16(dst, governorConfig()->gov_tracking_time);
+        sbufWriteU16(dst, governorConfig()->gov_recovery_time);
+        sbufWriteU16(dst, governorConfig()->gov_zero_throttle_timeout);
+        sbufWriteU16(dst, governorConfig()->gov_lost_headspeed_timeout);
+        sbufWriteU16(dst, governorConfig()->gov_autorotation_timeout);
+        sbufWriteU16(dst, governorConfig()->gov_autorotation_bailout_time);
+        sbufWriteU16(dst, governorConfig()->gov_autorotation_min_entry_time);
+        sbufWriteU8(dst, governorConfig()->gov_handover_throttle);
+        sbufWriteU8(dst, governorConfig()->gov_pwr_filter);
+        sbufWriteU8(dst, governorConfig()->gov_rpm_filter);
+        sbufWriteU8(dst, governorConfig()->gov_tta_filter);
+        sbufWriteU8(dst, governorConfig()->gov_ff_filter);
+        sbufWriteU8(dst, governorConfig()->gov_spoolup_min_throttle);
+        
+        // RXMAP
+        sbufWriteData(dst, rxConfig()->rcmap, RX_MAPPABLE_CHANNEL_COUNT);
+        
+        // STATUS
+        sbufWriteU16(dst, getTaskDeltaTimeUs(TASK_PID) * pidConfig()->pid_process_denom);
+        sbufWriteU16(dst, getTaskDeltaTimeUs(TASK_GYRO));
+        sbufWriteU16(dst, sensors(SENSOR_ACC) << 0 |
+                          sensors(SENSOR_BARO) << 1 |
+                          sensors(SENSOR_MAG) << 2 |
+                          sensors(SENSOR_GPS) << 3 |
+                          sensors(SENSOR_RANGEFINDER) << 4 |
+                          sensors(SENSOR_GYRO) << 5);
+        boxBitmask_t flightModeFlags;
+        packFlightModeFlags(&flightModeFlags);
+        sbufWriteData(dst, &flightModeFlags, 4);
+        sbufWriteU8(dst, 0); // compat: profile number
+        sbufWriteU16(dst, getMaxRealTimeLoad());
+        sbufWriteU16(dst, getAverageCPULoad());
+        sbufWriteU8(dst, 0); // compat: extra flight mode flags count
+        sbufWriteU8(dst, ARMING_DISABLE_FLAGS_COUNT);
+        sbufWriteU32(dst, getArmingDisableFlags());
+        sbufWriteU8(dst, getRebootRequired());
+        sbufWriteU8(dst, systemConfig()->configurationState);
+        
+        // MIXER_CONFIG
+        sbufWriteU8(dst, mixerConfig()->main_rotor_dir);
+        sbufWriteU8(dst, mixerConfig()->tail_rotor_mode);
+        sbufWriteU8(dst, mixerConfig()->tail_motor_idle);
+        sbufWriteU16(dst, mixerConfig()->tail_center_trim);
+        sbufWriteU8(dst, mixerConfig()->swash_type);
+        sbufWriteU8(dst, mixerConfig()->swash_ring);
+        sbufWriteU16(dst, mixerConfig()->swash_phase);
+        sbufWriteU16(dst, mixerConfig()->swash_pitch_limit);
+        sbufWriteU16(dst, mixerConfig()->swash_trim[0]);
+        sbufWriteU16(dst, mixerConfig()->swash_trim[1]);
+        sbufWriteU16(dst, mixerConfig()->swash_trim[2]);
+        sbufWriteU8(dst, mixerConfig()->swash_tta_precomp);
+        
+        // RTC
+#ifdef USE_RTC_TIME
+        {
+            dateTime_t dt;
+            if (rtcGetDateTime(&dt)) {
+                sbufWriteU16(dst, dt.year);
+                sbufWriteU8(dst, dt.month);
+                sbufWriteU8(dst, dt.day);
+                sbufWriteU8(dst, dt.hours);
+                sbufWriteU8(dst, dt.minutes);
+                sbufWriteU8(dst, dt.seconds);
+                sbufWriteU16(dst, dt.millis);
+            }
+        }
+#endif
+        
+        // BATTERY_CONFIG
+        sbufWriteU16(dst, batteryConfig()->batteryCapacity);
+        sbufWriteU8(dst, batteryConfig()->batteryCellCount);
+        sbufWriteU8(dst, batteryConfig()->voltageMeterSource);
+        sbufWriteU8(dst, batteryConfig()->currentMeterSource);
+        sbufWriteU16(dst, batteryConfig()->vbatmincellvoltage);
+        sbufWriteU16(dst, batteryConfig()->vbatmaxcellvoltage);
+        sbufWriteU16(dst, batteryConfig()->vbatfullcellvoltage);
+        sbufWriteU16(dst, batteryConfig()->vbatwarningcellvoltage);
+        sbufWriteU8(dst, batteryConfig()->lvcPercentage);
+        sbufWriteU8(dst, batteryConfig()->consumptionWarningPercentage);
+        break;
+
     case MSP_ANALOG:
         sbufWriteU8(dst, (uint8_t)constrain(getLegacyBatteryVoltage(), 0, UINT8_MAX));
         sbufWriteU16(dst, (uint16_t)constrain(getBatteryCapacityUsed(), 0, UINT16_MAX));

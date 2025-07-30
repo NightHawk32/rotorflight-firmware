@@ -78,6 +78,7 @@
 #define MSP_SET_PILOT_CONFIG                 13
 #define MSP_FLIGHT_STATS                     14
 #define MSP_SET_FLIGHT_STATS                 15
+#define MSP_FBL_CONFIG                       16
 
 #define MSP_BATTERY_CONFIG                   32
 #define MSP_SET_BATTERY_CONFIG               33
