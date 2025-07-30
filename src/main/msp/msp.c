@@ -2459,7 +2459,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
                 currentPidProfile->pid[i].O = sbufReadU16(src);
             }
         }
-        pidInitProfile(currentPidProfile);
+        pidLoadProfile(currentPidProfile);
         break;
 
     case MSP_SET_MODE_RANGE:
@@ -2535,17 +2535,19 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         loadControlRateProfile();
         break;
 
+#ifdef USE_MSP_SET_MOTOR
     case MSP_SET_MOTOR:
 #ifdef USE_MOTOR
         for (int i = 0; i < getMotorCount(); i++) {
             int throttle = sbufReadU16(src);
             if (motorIsEnabled() && motorIsMotorEnabled(i)) {
                 if (throttle >= 1000 && throttle <= 2000)
-                    setMotorOverride(i, throttle - 1000);
+                    setMotorOverride(i, throttle - 1000, 0);
             }
         }
 #endif
         break;
+#endif
 
     case MSP_SET_MOTOR_OVERRIDE:
 #ifdef USE_MOTOR
@@ -2553,7 +2555,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         if (i >= MAX_SUPPORTED_MOTORS) {
             return MSP_RESULT_ERROR;
         }
-        setMotorOverride(i, sbufReadU16(src));
+        setMotorOverride(i, sbufReadU16(src), MOTOR_OVERRIDE_TIMEOUT);
 #endif
         break;
 
@@ -2804,7 +2806,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             currentPidProfile->yaw_inertia_precomp_cutoff = sbufReadU8(src);
         }
         /* Load new values */
-        pidInitProfile(currentPidProfile);
+        pidLoadProfile(currentPidProfile);
         break;
 
     case MSP_SET_RESCUE_PROFILE:
