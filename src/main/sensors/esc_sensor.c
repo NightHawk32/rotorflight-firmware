@@ -940,120 +940,6 @@ static void kontronikSensorProcess(timeUs_t currentTimeUs)
 
 
 /*
- * OMP Hobby M4 Telemetry
- *
- *    - Serial protocol is 115200,8N1
- *    - Frame rate 20Hz
- *    - Frame length includes header and CRC
- *    - Big-Endian fields
- *    - Status Code bits:
- *         0:  Short-circuit protection
- *         1:  Motor connection error
- *         2:  Throttle signal lost
- *         3:  Throttle signal >0 on startup error
- *         4:  Low voltage protection
- *         5:  Temperature protection
- *         6:  Startup protection
- *         7:  Current protection
- *         8:  Throttle signal error
- *        12:  Battery voltage error
- *
- * Frame Format
- * ――――――――――――――――――――――――――――――――――――――――――――――――――――――――
- *      0:      Start Flag (0xdd)
- *      1:      Protocol version (0x01)
- *      2:      Frame lenght (32)
- *    3-4:      Battery voltage in 0.1V
- *    5-6:      Battery current in 0.1V
- *      7:      Throttle %
- *    8-9:      RPM in 10rpm steps
- *     10:      ESC Temperature °C
- *     11:      Motor Temperature °C
- *     12:      PWM duty cycle %
- *  13-14:      Status Code
- *  15-16:      Capacity mAh
- *  17-31:      Unused / Zeros
- *
- */
-
-static bool processOMPTelemetryStream(uint8_t dataByte)
-{
-    totalByteCount++;
-
-    buffer[readBytes++] = dataByte;
-
-    if (readBytes == 1) {
-        if (dataByte != 0xDD)
-            frameSyncError();
-        else
-            syncCount++;
-    }
-    else if (readBytes == 32) {
-        readBytes = 0;
-        if (syncCount > 2)
-            return true;
-    }
-
-    return false;
-}
-
-static void ompSensorProcess(timeUs_t currentTimeUs)
-{
-    // check for any available bytes in the rx buffer
-    while (serialRxBytesWaiting(escSensorPort)) {
-        if (processOMPTelemetryStream(serialRead(escSensorPort))) {
-            // Make sure this is OMP M4 ESC
-            if (buffer[1] == 0x01 && buffer[2] == 0x20 && buffer[11] == 0 && buffer[18] == 0 && buffer[20] == 0) {
-                uint16_t rpm = buffer[8] << 8 | buffer[9];
-                uint16_t throttle = buffer[7];
-                uint16_t pwm = buffer[12];
-                uint16_t temp = buffer[10];
-                uint16_t voltage = buffer[3] << 8 | buffer[4];
-                uint16_t current = buffer[5] << 8 | buffer[6];
-                uint16_t capacity = buffer[15] << 8 | buffer[16];
-                uint16_t status = buffer[13] << 8 | buffer[14];
-
-                escSensorData[0].id = ESC_SIG_OMP;
-                escSensorData[0].age = 0;
-                escSensorData[0].erpm = rpm * 10;
-                escSensorData[0].throttle = throttle * 10;
-                escSensorData[0].pwm = pwm * 10;
-                escSensorData[0].voltage = applyVoltageCorrection(voltage * 100);
-                escSensorData[0].current = applyCurrentCorrection(current * 100);
-                escSensorData[0].consumption = applyConsumptionCorrection(capacity);
-                escSensorData[0].temperature = temp * 10;
-                escSensorData[0].status = status;
-
-                DEBUG(ESC_SENSOR, DEBUG_ESC_1_RPM, rpm * 10);
-                DEBUG(ESC_SENSOR, DEBUG_ESC_1_TEMP, temp * 10);
-                DEBUG(ESC_SENSOR, DEBUG_ESC_1_VOLTAGE, voltage * 10);
-                DEBUG(ESC_SENSOR, DEBUG_ESC_1_CURRENT, current * 10);
-
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_RPM, rpm);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_PWM, pwm);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_TEMP, temp);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_VOLTAGE, voltage);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_CURRENT, current);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_CAPACITY, capacity);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_EXTRA, status);
-                DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_AGE, 0);
-
-                dataUpdateUs = currentTimeUs;
-
-                totalFrameCount++;
-            }
-            else {
-                totalCrcErrorCount++;
-            }
-        }
-    }
-
-    // Maximum frame spacing 50ms, sync after 3 frames
-    checkFrameTimeout(currentTimeUs, 500000);
-}
-
-
-/*
  * ZTW Telemetry
  *
  *    - Serial protocol is 115200,8N1
@@ -3351,6 +3237,414 @@ static serialReceiveCallbackPtr graupnerSensorInit(void)
 }
 
 /*
+ * OMPHOBBY Forward Programming
+ *
+ *     - Serial protocol is 115200,8N1
+ *     - Big-Endian byte order
+ * 
+ * 
+ * Frame Format
+ * ――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+ *      0:      start byte (0xA4)
+ *      1:      length in bytes (8)
+ *      2:      command 
+ *          0x03 handshake
+ *          0x34 set_par
+ *          0x33 get_par
+ *      3:      param number
+ *      4-5:    param value
+ *      6-7:      CRC16
+ * 
+ * 
+ * checking whether the param is valid for the connected ESC:
+ *      if the highest bit of the value is set, the parameter is valid for the connected ESC
+ *          bool paramValid = paramValueRaw & 0x8000 != 0 //param shall not be displayed
+ *      the actual data is in the lower 15 bits
+ *          uint16_t paramValue =  paramValueRaw & 0x7FFF
+ * 
+ * for setting a param the high bit of the value is set to 1
+ *     uint16_t paramValueRaw = paramValue | 0x8000
+ * 
+ * when setting a param and the ESC responds with 0xFFFF, setting the param was not successful
+ */
+#define OMP_SYNC                            0xA4                // start byte
+#define OMP_HEADER_LENGTH                   3                   // header length
+#define OMP_PAYLOAD_LENGTH                  3
+#define OMP_FOOTER_LENGTH                   2                   // CRC
+#define OMP_FRAME_LENGTH                    (OMP_HEADER_LENGTH + OMP_PAYLOAD_LENGTH + OMP_FOOTER_LENGTH)
+#define OMP_BOOT_DELAY                      5000
+
+#define OMP_SYNC_TELEM                      0xDD
+#define OMP_TELEM_VERSION                   0x01
+#define OMP_TELEM_FRAME_LENGTH              0x20
+#define OMP_PARAM_FRAME_PERIOD              10
+#define OMP_PARAM_FRAME_TIMEOUT             200
+
+#define OMP_CMD_HANDSHAKE                   0x03
+#define OMP_CMD_RESPONSE                    0xCD
+#define OMP_CMD_SET_PARAM                   0x34
+#define OMP_CMD_GET_PARAM                   0x33
+#define OMP_NUM_VALIDITY_FIELDS             2
+
+ enum {
+    OMP_PARAM_MODEL = 0,
+    OMP_PARAM_GOV_MODE,
+    OMP_PARAM_CUTOFF,
+    OMP_PARAM_TIMING,
+    OMP_PARAM_LV_BEC_VOLT,
+    OMP_PARAM_ROTATION_DIR,
+    OMP_PARAM_GOV_P,
+    OMP_PARAM_GOV_I,
+    OMP_PARAM_ACCEL,
+    OMP_PARAM_AUTO_RESTART_TIME,
+    OMP_PARAM_HV_BEC_VOLT,
+    OMP_PARAM_RSTARTUP_POWER,
+    OMP_PARAM_BRAKE_TYPE,
+    OMP_PARAM_RBRAKE_FORCE,
+    OMP_PARAM_SR_FUNC,
+    OMP_PARAM_CAPACITY_CORR,
+    OMP_PARAM_MOTOR_POLES,
+    OMP_PARAM_LED_COL,
+    OMP_PARAM_SMART_FAN,
+    OMP_VALID_1,
+    OMP_VALID_2,
+    OMP_PARAM_COUNT
+};
+
+uint16_t omp_params[OMP_PARAM_COUNT] = {0};
+bool omp_params_active[OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS] = {0};
+bool omp_param_cached[OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS] = {0};
+
+enum omp_setup_status {
+    OMP_INIT = 0,
+    OMP_CACHE_PARAMS,
+    OMP_PARAMS_READY,
+    OMP_WAIT_FOR_HANDSHAKE,
+    OMP_WRITE_PARAMS,
+};
+
+static enum omp_setup_status omp_setup_status = OMP_INIT;
+
+static bool omp_connected = false;
+static bool omp_send_handshake = false;
+static bool omp_handshake_response_pending = false;
+static timeMs_t omp_handshake_timestamp = 0;
+static uint8_t omp_param_index = 0;
+static uint8_t omp_write_param_index = 0;
+
+static void omp_build_req(uint8_t cmd, uint8_t param_idx, uint16_t frame_period, uint16_t frame_timeout)
+{
+    uint8_t idx = 0;
+
+    reqbuffer[idx++] = OMP_SYNC;
+    reqbuffer[idx++] = OMP_FRAME_LENGTH;
+    reqbuffer[idx++] = cmd;
+
+    if (cmd == OMP_CMD_HANDSHAKE) {
+        reqbuffer[idx++] = 0;
+        reqbuffer[idx++] = 0;
+        reqbuffer[idx++] = 0;
+    } else if (cmd == OMP_CMD_GET_PARAM) {
+        reqbuffer[idx++] = param_idx;
+        reqbuffer[idx++] = 0;
+        reqbuffer[idx++] = 0;
+    } else if (cmd == OMP_CMD_SET_PARAM) {
+        reqbuffer[idx++] = param_idx;
+        reqbuffer[idx++] = paramUpdPayload[param_idx * 2 + 1] | 0x80;
+        reqbuffer[idx++] = paramUpdPayload[param_idx * 2];
+    }
+
+    uint8_t crclen = idx;
+    uint16_t crc16 = calculateCRC16_MODBUS(reqbuffer, crclen);
+    reqbuffer[idx++] = crc16 >> 8;
+    reqbuffer[idx++] = crc16 & 0xFF;
+
+    reqLength = idx;
+    rrfsmFramePeriod = frame_period;
+    rrfsmFrameTimeout = frame_timeout;
+}
+
+static void omp_get_next_param(void)
+{
+    if (!omp_param_cached[omp_param_index])
+        omp_build_req(OMP_CMD_GET_PARAM, omp_param_index, 1, 0);
+}
+
+static void omp_write_next_param(void)
+{
+    omp_build_req(OMP_CMD_SET_PARAM, omp_write_param_index, 1, 0);
+}
+
+/*
+ * OMP Hobby M4 Telemetry
+ *
+ *    - Serial protocol is 115200,8N1
+ *    - Frame rate 20Hz
+ *    - Frame length includes header and CRC
+ *    - Big-Endian fields
+ *    - Status Code bits:
+ *         0:  Short-circuit protection
+ *         1:  Motor connection error
+ *         2:  Throttle signal lost
+ *         3:  Throttle signal >0 on startup error
+ *         4:  Low voltage protection
+ *         5:  Temperature protection
+ *         6:  Startup protection
+ *         7:  Current protection
+ *         8:  Throttle signal error
+ *        12:  Battery voltage error
+ *
+ * Frame Format
+ * ――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+ *      0:      Start Flag (0xdd)
+ *      1:      Protocol version (0x01)
+ *      2:      Frame lenght (32)
+ *    3-4:      Battery voltage in 0.1V
+ *    5-6:      Battery current in 0.1V
+ *      7:      Throttle %
+ *    8-9:      RPM in 10rpm steps
+ *     10:      ESC Temperature °C
+ *     11:      Motor Temperature °C
+ *     12:      PWM duty cycle %
+ *  13-14:      Status Code
+ *  15-16:      Capacity mAh
+ *  17-31:      Unused / Zeros
+ *
+ */
+static void omp_sensor_process(timeUs_t current_time_us)
+{
+    if (buffer[1] == 0x01 && buffer[2] == 0x20) {
+        uint16_t rpm = buffer[8] << 8 | buffer[9];
+        uint16_t temp = buffer[10];
+        uint16_t throttle = buffer[7];
+        uint16_t power = buffer[12];
+        uint16_t voltage = buffer[3] << 8 | buffer[4];
+        uint16_t current = buffer[5] << 8 | buffer[6];
+        uint16_t capacity = buffer[15] << 8 | buffer[16];
+        uint16_t status = buffer[13] << 8 | buffer[14];
+        uint16_t volt_bec = buffer[19];
+
+        escSensorData[0].id = ESC_SIG_OMP;
+        escSensorData[0].age = 0;
+        escSensorData[0].erpm = rpm * 10;
+        escSensorData[0].throttle = throttle * 10;
+        escSensorData[0].pwm = power * 10;
+        escSensorData[0].voltage = applyVoltageCorrection(voltage * 100);
+        escSensorData[0].current = applyCurrentCorrection(current * 100);
+        escSensorData[0].consumption = applyConsumptionCorrection(capacity);
+        escSensorData[0].temperature = temp * 10;
+        escSensorData[0].bec_voltage = volt_bec * 1000;
+        escSensorData[0].status = status;
+
+        DEBUG(ESC_SENSOR, DEBUG_ESC_1_RPM, rpm * 10);
+        DEBUG(ESC_SENSOR, DEBUG_ESC_1_TEMP, temp * 10);
+        DEBUG(ESC_SENSOR, DEBUG_ESC_1_VOLTAGE, voltage * 10);
+        DEBUG(ESC_SENSOR, DEBUG_ESC_1_CURRENT, current * 10);
+
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_RPM, rpm);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_PWM, power);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_TEMP, temp);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_VOLTAGE, voltage);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_CURRENT, current);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_CAPACITY, capacity);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_EXTRA, status);
+        DEBUG(ESC_SENSOR_DATA, DEBUG_DATA_AGE, 0);
+
+        dataUpdateUs = current_time_us;
+        totalFrameCount++;
+    }
+    checkFrameTimeout(current_time_us, 500000);
+}
+
+static void omp_start_caching_params(void)
+{
+    omp_setup_status = OMP_CACHE_PARAMS;
+    omp_param_index = 0;
+
+    for (uint8_t i = 0; i < OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS; i++) {
+        omp_param_cached[i] = false;
+        omp_params_active[i] = false;
+    }
+
+    omp_params[OMP_VALID_1] = 0;
+    omp_params[OMP_VALID_2] = 0;
+    omp_get_next_param();
+}
+
+static bool omp_decode(timeUs_t current_time_us)
+{
+    if (buffer[0] == OMP_SYNC) {
+        if (buffer[1] != OMP_FRAME_LENGTH)
+            return false;
+
+        uint16_t crc16 = buffer[6] << 8 | buffer[7];
+        if (calculateCRC16_MODBUS(buffer, OMP_FRAME_LENGTH - OMP_FOOTER_LENGTH) != crc16)
+            return false;
+
+        switch (buffer[2]) {
+        case OMP_CMD_HANDSHAKE:
+        case OMP_CMD_RESPONSE:
+            if (buffer[3] == 0x00 && buffer[4] == 0x55 && buffer[5] == 0x55) {
+                rrfsmFramePeriod = 0;
+                omp_handshake_timestamp = current_time_us;
+                omp_handshake_response_pending = false;
+                omp_connected = true;
+                rrfsmInvalidateReq();
+                omp_start_caching_params();
+                return true;
+            } else if (omp_setup_status == OMP_WRITE_PARAMS) {
+                if (buffer[3] == omp_write_param_index) {
+                    omp_write_param_index++;
+                    while (omp_write_param_index < OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS &&
+                           !omp_params_active[omp_write_param_index]) {
+                        omp_write_param_index++;
+                    }
+                }
+                if (omp_write_param_index >= OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS) {
+                    omp_start_caching_params();
+                } else {
+                    omp_write_next_param();
+                }
+                return true;
+            } else if (buffer[3] == omp_param_index || omp_param_index == 0) {
+                omp_param_cached[omp_param_index] = true;
+                omp_params[omp_param_index] = (buffer[4] << 8 | buffer[5]) & 0x7FFF;
+                omp_params_active[omp_param_index] = buffer[4] & 0x80;
+                omp_param_index++;
+
+                if (omp_param_index >= OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS) {
+                    for (uint8_t i = 0; i < OMP_PARAM_COUNT - OMP_NUM_VALIDITY_FIELDS; i++) {
+                        if (i < 16) {
+                            omp_params[OMP_VALID_1] |= omp_params_active[i] << i;
+                        } else {
+                            omp_params[OMP_VALID_2] |= omp_params_active[i] << (i - 16);
+                        }
+                    }
+                    omp_setup_status = OMP_PARAMS_READY;
+                    paramPayloadLength = OMP_PARAM_COUNT * 2;
+                    memcpy(paramPayload, omp_params, paramPayloadLength);
+                } else {
+                    omp_get_next_param();
+                }
+                return true;
+            }
+            break;
+
+        default:
+            return false;
+        }
+    } else if (buffer[0] == OMP_SYNC_TELEM) {
+        if (buffer[1] != OMP_TELEM_VERSION)
+            return false;
+
+        if (buffer[2] != OMP_TELEM_FRAME_LENGTH)
+            return false;
+
+        omp_sensor_process(current_time_us);
+
+        if (omp_setup_status == OMP_CACHE_PARAMS) {
+            omp_get_next_param();
+        } else if (omp_setup_status == OMP_WRITE_PARAMS) {
+            omp_write_next_param();
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool omp_param_commit(uint8_t cmd)
+{
+    omp_write_param_index = 1;
+    omp_setup_status = OMP_WRITE_PARAMS;
+    UNUSED(cmd);
+    return true;
+}
+
+static bool omp_crank_unc_setup(timeUs_t current_time_us)
+{
+    switch (omp_setup_status) {
+    case OMP_INIT:
+        if (!omp_connected) {
+            omp_setup_status = OMP_WAIT_FOR_HANDSHAKE;
+            rrfsmFrameLength = OMP_FRAME_LENGTH;
+            rrfsmMinFrameLength = OMP_FRAME_LENGTH;
+            omp_send_handshake = true;
+        }
+        break;
+
+    case OMP_WAIT_FOR_HANDSHAKE:
+        if (current_time_us > omp_handshake_timestamp + 10000 && omp_handshake_response_pending) {
+            omp_send_handshake = true;
+        }
+        if (omp_send_handshake) {
+            omp_send_handshake = false;
+            omp_handshake_response_pending = true;
+            omp_build_req(OMP_CMD_HANDSHAKE, 0, OMP_PARAM_FRAME_PERIOD, FLY_PARAM_CONNECT_TIMEOUT);
+            rrfsmFrameLength = OMP_FRAME_LENGTH;
+            rrfsmMinFrameLength = OMP_FRAME_LENGTH;
+        }
+        break;
+
+    case OMP_CACHE_PARAMS:
+        break;
+
+    case OMP_PARAMS_READY:
+        break;
+
+    case OMP_WRITE_PARAMS:
+        break;
+    }
+    return true;
+}
+
+static int8_t omp_accept(uint16_t c)
+{
+    static uint8_t got_telem_frame = false;
+
+    if (readBytes == 1) {
+        if (c == OMP_SYNC_TELEM) {
+            got_telem_frame = true;
+        } else if (c == OMP_SYNC) {
+            got_telem_frame = false;
+        } else {
+            return -1;
+        }
+    } else if (readBytes == 2) {
+        if (got_telem_frame) {
+            if (c != OMP_TELEM_VERSION)
+                return -1;
+        } else {
+            if (c != OMP_FRAME_LENGTH)
+                return -1;
+            rrfsmFrameLength = c;
+            return 1;
+        }
+    } else if (readBytes == 3) {
+        if (got_telem_frame) {
+            if (c != OMP_TELEM_FRAME_LENGTH) {
+                return -1;
+            } else {
+                rrfsmFrameLength = c;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static serialReceiveCallbackPtr ompSensorInit(void)
+{
+    rrfsmCrank = omp_crank_unc_setup;
+    rrfsmDecode = omp_decode;
+    rrfsmAccept = omp_accept;
+    paramCommit = omp_param_commit;
+    escSig = ESC_SIG_OMP;
+
+    return rrfsmDataReceive;
+}
+
+
+/*
  * XDFLY
  *
  *     - Serial protocol is 115200,8N1
@@ -3902,7 +4196,7 @@ void escSensorProcess(timeUs_t currentTimeUs)
                 kontronikSensorProcess(currentTimeUs);
                 break;
             case ESC_SENSOR_PROTO_OMPHOBBY:
-                ompSensorProcess(currentTimeUs);
+                rrfsmSensorProcess(currentTimeUs);
                 break;
             case ESC_SENSOR_PROTO_ZTW:
                 ztwSensorProcess(currentTimeUs);
@@ -3947,6 +4241,7 @@ void INIT_CODE validateAndFixEscSensorConfig(void)
     switch (escSensorConfig()->protocol) {
         case ESC_SENSOR_PROTO_GRAUPNER:
         case ESC_SENSOR_PROTO_XDFLY:
+        case ESC_SENSOR_PROTO_OMPHOBBY:
             escSensorConfigMutable()->halfDuplex = true;
             break;
 #ifdef USE_TELEMETRY_CASTLE
@@ -4007,6 +4302,9 @@ bool INIT_CODE escSensorInit(void)
             options |= SERIAL_PARITY_EVEN;
             break;
         case ESC_SENSOR_PROTO_OMPHOBBY:
+            callback = ompSensorInit();
+            baudrate = 115200;
+            break;
         case ESC_SENSOR_PROTO_ZTW:
         case ESC_SENSOR_PROTO_APD:
             baudrate = 115200;
