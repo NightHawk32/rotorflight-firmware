@@ -442,6 +442,20 @@ static void mixerUpdateSwash(void)
         SP += mixer.swashTrim[1];
         SC += mixer.swashTrim[2];
 
+        float motor[4] = { 0, 0, 0, 0 };
+
+        if(mixerConfig()->swash_type == SWASH_TYPE_QUAD) {
+            motor[0] = ST - SR * 0.5f + SP * 0.5f + SY * 0.5f;   //br cw
+            motor[1] = ST - SR * 0.5f - SP * 0.5f - SY * 0.5f;   //fr ccw
+            motor[2] = ST + SR * 0.5f + SP * 0.5f - SY * 0.5f;   //bl ccw
+            motor[3] = ST + SR * 0.5f - SP * 0.5f + SY * 0.5f;   //fl cw
+        }else if(mixerConfig()->swash_type == SWASH_TYPE_QUADDC) {
+            motor[0] = ST - SR * 0.5f + SP * 0.375f + SY * 0.5f;   //br cw
+            motor[1] = ST - SR * 0.5f - SP * 0.375f - SY * 0.5f;   //fr ccw
+            motor[2] = ST + SR * 0.5f + SP * 0.375f - SY * 0.5f;   //bl ccw
+            motor[3] = ST + SR * 0.5f - SP * 0.375f + SY * 0.5f;   //fl cw
+        }
+
         switch (mixerConfig()->swash_type) {
             case SWASH_TYPE_120:
                 setServoOutput(0, 0.5f * SC - SP);
@@ -478,14 +492,11 @@ static void mixerUpdateSwash(void)
                 break;
 
             case SWASH_TYPE_QUAD:
+            case SWASH_TYPE_QUADDC:
                 // ensure min value for each motor
                 // make sure that at max and min the relation between motors is correct
                 if (ARMING_FLAG(ARMED)) {
-                    float motor[4] = {
-                        ST - SR * 0.5f + SP * 0.5f + SY * 0.5f,   //br cw
-                        ST - SR * 0.5f - SP * 0.5f - SY * 0.5f,   //fr ccw
-                        ST + SR * 0.5f + SP * 0.5f - SY * 0.5f,   //bl ccw
-                        ST + SR * 0.5f - SP * 0.5f + SY * 0.5f};  //fl cw
+
 
                     // Find min and max motor values
                     float minMotor = motor[0], maxMotor = motor[0];
@@ -529,7 +540,7 @@ static void mixerUpdateSwash(void)
                 break;
         }
 
-        if(mixerConfig()->swash_type != SWASH_TYPE_QUAD){  
+        if(mixerConfig()->swash_type != SWASH_TYPE_QUAD && mixerConfig()->swash_type != SWASH_TYPE_QUADDC){  
             setMotorOutput(0, ST);
 
             if (mixerMotorizedTail())
@@ -767,6 +778,7 @@ void INIT_CODE mixerInit(void)
                 break;
 
             case SWASH_TYPE_QUAD:
+            case SWASH_TYPE_QUADDC:
                 addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 0);
                 addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 1);
                 addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 2);
@@ -787,7 +799,7 @@ void INIT_CODE mixerInit(void)
             
         }
 
-        if (mixerConfig()->swash_type != SWASH_TYPE_QUAD) {
+        if (mixerConfig()->swash_type != SWASH_TYPE_QUAD && mixerConfig()->swash_type != SWASH_TYPE_QUADDC) {
             addMotorMapping(MIXER_IN_STABILIZED_THROTTLE, 0);
 
             if (mixerMotorizedTail())
