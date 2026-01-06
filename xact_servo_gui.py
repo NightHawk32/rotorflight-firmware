@@ -214,6 +214,10 @@ class XACTServoGUI(QMainWindow):
         advanced_tab = self.create_advanced_params_tab()
         self.param_tabs.addTab(advanced_tab, "Advanced Settings")
         
+        # Swashplate setup tab
+        swashplate_tab = self.create_swashplate_tab()
+        self.param_tabs.addTab(swashplate_tab, "Swashplate Setup")
+        
         layout.addWidget(self.param_tabs)
         
         # Log area
@@ -389,6 +393,217 @@ class XACTServoGUI(QMainWindow):
         layout.setRowStretch(row + 1, 1)
         widget.setLayout(layout)
         return widget
+    
+    def create_swashplate_tab(self):
+        """Create swashplate setup tab with 4 servos"""
+        widget = QWidget()
+        main_layout = QVBoxLayout()
+        
+        # Title
+        title = QLabel("Swashplate Servo Configuration")
+        title_font = QFont()
+        title_font.setPointSize(12)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        main_layout.addWidget(title)
+        
+        # Instructions
+        instructions = QLabel(
+            "Click 'Program' to scan for a servo and configure it for the corresponding swashplate position.\n"
+            "Each servo will be assigned its channel and mapped to the correct Physical ID and App ID Offset."
+        )
+        instructions.setWordWrap(True)
+        main_layout.addWidget(instructions)
+        
+        # Servo grid
+        servo_grid = QGridLayout()
+        servo_grid.setSpacing(20)
+        
+        # Servo configurations: (servo_num, physical_id, app_id_offset)
+        servo_configs = [
+            (1, 0x0C, 0x01),
+            (2, 0x09, 0x02),
+            (3, 0x18, 0x03),
+            (4, 0x10, 0x04)
+        ]
+        
+        self.swashplate_servos = {}
+        
+        for idx, (servo_num, phy_id, app_id_offset) in enumerate(servo_configs):
+            row = idx // 2
+            col = (idx % 2) * 3
+            
+            # Servo group box
+            servo_group = QGroupBox(f"Servo {servo_num}")
+            servo_layout = QVBoxLayout()
+            
+            # Servo illustration (simple text representation)
+            servo_visual = QLabel("🔧")
+            servo_visual.setAlignment(Qt.AlignCenter)
+            servo_visual_font = QFont()
+            servo_visual_font.setPointSize(48)
+            servo_visual.setFont(servo_visual_font)
+            servo_layout.addWidget(servo_visual)
+            
+            # Servo number label
+            servo_label = QLabel(f"Servo {servo_num}")
+            servo_label.setAlignment(Qt.AlignCenter)
+            servo_label_font = QFont()
+            servo_label_font.setPointSize(14)
+            servo_label_font.setBold(True)
+            servo_label.setFont(servo_label_font)
+            servo_layout.addWidget(servo_label)
+            
+            # Configuration info
+            config_info = QLabel(
+                f"Physical ID: 0x{phy_id:02X}\n"
+                f"App ID Offset: 0x{app_id_offset:02X}\n"
+                f"Channel: {servo_num - 1}"
+            )
+            config_info.setAlignment(Qt.AlignCenter)
+            servo_layout.addWidget(config_info)
+            
+            # Status label
+            status_label = QLabel("Not configured")
+            status_label.setAlignment(Qt.AlignCenter)
+            status_label.setStyleSheet("color: gray;")
+            servo_layout.addWidget(status_label)
+            
+            # Program button
+            program_btn = QPushButton(f"Program Servo {servo_num}")
+            program_btn.setMinimumHeight(40)
+            program_btn.clicked.connect(
+                lambda checked, sn=servo_num, pid=phy_id, aid=app_id_offset, sl=status_label:
+                self.program_swashplate_servo(sn, pid, aid, sl)
+            )
+            servo_layout.addWidget(program_btn)
+            
+            servo_group.setLayout(servo_layout)
+            servo_grid.addWidget(servo_group, row, col, 1, 3)
+            
+            # Store references
+            self.swashplate_servos[servo_num] = {
+                'status_label': status_label,
+                'button': program_btn,
+                'physical_id': phy_id,
+                'app_id_offset': app_id_offset
+            }
+        
+        main_layout.addLayout(servo_grid)
+        main_layout.addStretch()
+        
+        widget.setLayout(main_layout)
+        return widget
+    
+    def program_swashplate_servo(self, servo_num, physical_id, app_id_offset, status_label):
+        """Program a swashplate servo with predefined settings"""
+        if not self.msp.is_connected():
+            QMessageBox.warning(self, "Error", "Not connected to flight controller")
+            return
+        
+        channel = servo_num - 1  # Servo 1 -> Channel 0, etc.
+        
+        self.log(f"Programming Servo {servo_num}...")
+        self.log(f"  Target Physical ID: 0x{physical_id:02X}")
+        self.log(f"  Target App ID Offset: 0x{app_id_offset:02X}")
+        self.log(f"  Target Channel: {channel}")
+        
+        status_label.setText("Scanning...")
+        status_label.setStyleSheet("color: orange;")
+        QApplication.processEvents()
+        
+        # Send scan command
+        response = self.msp.send_and_receive(MSP_SET_XACT_SCAN)
+        if not response or response['error']:
+            self.log(f"✗ Failed to send scan command for Servo {servo_num}")
+            status_label.setText("Scan failed")
+            status_label.setStyleSheet("color: red;")
+            return
+        
+        self.log(f"Scan command sent, waiting 2 seconds...")
+        
+        # Wait for scan to complete
+        QTimer.singleShot(2000, lambda: self.complete_swashplate_programming(
+            servo_num, physical_id, app_id_offset, channel, status_label
+        ))
+    
+    def complete_swashplate_programming(self, servo_num, physical_id, app_id_offset, channel, status_label):
+        """Complete the programming after scan"""
+        # Get discovered servo
+        response = self.msp.send_and_receive(MSP_XACT_PARAMS)
+        
+        if not response or response['error']:
+            self.log(f"✗ Failed to get servo parameters for Servo {servo_num}")
+            status_label.setText("No servo found")
+            status_label.setStyleSheet("color: red;")
+            return
+        
+        payload = response['payload']
+        if len(payload) < 13:
+            self.log(f"✗ No servo discovered for Servo {servo_num}")
+            status_label.setText("No servo found")
+            status_label.setStyleSheet("color: red;")
+            return
+        
+        # Parse current parameters
+        current_phy_id = payload[0]
+        
+        if current_phy_id == 0:
+            self.log(f"✗ No servo discovered for Servo {servo_num}")
+            status_label.setText("No servo found")
+            status_label.setStyleSheet("color: red;")
+            return
+        
+        self.log(f"Found servo with Physical ID: 0x{current_phy_id:02X}")
+        
+        # Parse all current parameters
+        params = {
+            'physicalId': payload[0],
+            'appIdOffset': payload[1],
+            'dataRate': struct.unpack('<H', payload[2:4])[0],
+            'range': payload[4],
+            'direction': payload[5],
+            'pulseType': payload[6],
+            'channel': payload[7],
+            'center': payload[8],
+            'p1': payload[9],
+            'p2': payload[10],
+            'd1': payload[11],
+            'tb': payload[12],
+            'potGap': payload[13]
+        }
+        
+        # Build payload with new settings
+        new_payload = struct.pack('<BBHBBBBBBBBBB',
+            physical_id,  # New physical ID
+            app_id_offset,  # New app ID offset
+            params['dataRate'],  # Keep existing data rate
+            params['range'],  # Keep existing range
+            params['direction'],  # Keep existing direction
+            params['pulseType'],  # Keep existing pulse type
+            channel,  # Set channel to servo_num - 1
+            params['center'],  # Keep existing center
+            params['p1'],  # Keep existing p1
+            params['p2'],  # Keep existing p2
+            params['d1'],  # Keep existing d1
+            params['tb'],  # Keep existing tb
+            params['potGap']  # Keep existing potGap
+        )
+        
+        # Write parameters
+        response = self.msp.send_and_receive(MSP_SET_XACT_PARAMS, new_payload)
+        
+        if response and not response['error']:
+            self.log(f"✓ Successfully programmed Servo {servo_num}")
+            self.log(f"  Physical ID: 0x{physical_id:02X}")
+            self.log(f"  App ID Offset: 0x{app_id_offset:02X}")
+            self.log(f"  Channel: {channel}")
+            status_label.setText("✓ Configured")
+            status_label.setStyleSheet("color: green;")
+        else:
+            self.log(f"✗ Failed to write parameters for Servo {servo_num}")
+            status_label.setText("Write failed")
+            status_label.setStyleSheet("color: red;")
     
     def refresh_ports(self):
         """Refresh available serial ports"""
