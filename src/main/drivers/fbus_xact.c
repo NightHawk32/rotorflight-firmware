@@ -435,89 +435,97 @@ bool fbusXactCompareAndWriteParams(uint8_t phyID, uint16_t appId, const xactServ
     xactServoParams_t *cachedParams = &xactServoParams[servoIndex];
     bool hasChanges = false;
     
+    // Track current phyID and appId - these may be updated if PHYSICAL_ID or APP_ID_BASE change
+    uint8_t currentPhyID = phyID;
+    uint16_t currentAppId = appId;
+    
     // Compare each parameter and queue writes for differences
     if (cachedParams->physicalId != newParams->physicalId) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_PHYSICAL_ID, appId, newParams->physicalId);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_PHYSICAL_ID, currentAppId, newParams->physicalId);
         cachedParams->physicalId = newParams->physicalId;
+        // Update currentPhyID for subsequent writes
+        currentPhyID = newParams->physicalId;
         hasChanges = true;
     }
     
     if (cachedParams->appIdOffset != newParams->appIdOffset) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_APP_ID_BASE, appId, newParams->appIdOffset);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_APP_ID_BASE, currentAppId, newParams->appIdOffset);
         cachedParams->appIdOffset = newParams->appIdOffset;
+        // Update currentAppId for subsequent writes (base + offset)
+        currentAppId = FBUS_SERVO_DATA_BASE + newParams->appIdOffset;
         hasChanges = true;
     }
     
     if (cachedParams->dataRate != newParams->dataRate) {
         // Data rate is 16-bit, write low byte then high byte
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_DATA_RATE, appId, newParams->dataRate);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_DATA_RATE, currentAppId, newParams->dataRate);
         cachedParams->dataRate = newParams->dataRate;
         hasChanges = true;
     }
     
     if (cachedParams->range != newParams->range) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_RANGE, appId, newParams->range);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_RANGE, currentAppId, newParams->range);
         cachedParams->range = newParams->range;
         hasChanges = true;
     }
     
     if (cachedParams->direction != newParams->direction) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_DIRECTION, appId, newParams->direction);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_DIRECTION, currentAppId, newParams->direction);
         cachedParams->direction = newParams->direction;
         hasChanges = true;
     }
     
     if (cachedParams->pulseType != newParams->pulseType) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_PULSE_TYPE, appId, newParams->pulseType);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_PULSE_TYPE, currentAppId, newParams->pulseType);
         cachedParams->pulseType = newParams->pulseType;
         hasChanges = true;
     }
     
     if (cachedParams->channel != newParams->channel) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_CHANNEL, appId, newParams->channel);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_CHANNEL, currentAppId, newParams->channel);
         cachedParams->channel = newParams->channel;
         hasChanges = true;
     }
     
     if (cachedParams->center != newParams->center) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_CENTER, appId, newParams->center);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_CENTER, currentAppId, newParams->center);
         cachedParams->center = newParams->center;
         hasChanges = true;
     }
     
     if (cachedParams->p1 != newParams->p1) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_P1, appId, newParams->p1);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_P1, currentAppId, newParams->p1);
         cachedParams->p1 = newParams->p1;
         hasChanges = true;
     }
     
     if (cachedParams->p2 != newParams->p2) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_P2, appId, newParams->p2);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_P2, currentAppId, newParams->p2);
         cachedParams->p2 = newParams->p2;
         hasChanges = true;
     }
     
     if (cachedParams->d1 != newParams->d1) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_D1, appId, newParams->d1);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_D1, currentAppId, newParams->d1);
         cachedParams->d1 = newParams->d1;
         hasChanges = true;
     }
     
     if (cachedParams->tb != newParams->tb) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_TB, appId, newParams->tb);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_TB, currentAppId, newParams->tb);
         cachedParams->tb = newParams->tb;
         hasChanges = true;
     }
     
     if (cachedParams->potGap != newParams->potGap) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_POT_GAP, appId, newParams->potGap);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_POT_GAP, currentAppId, newParams->potGap);
         cachedParams->potGap = newParams->potGap;
         hasChanges = true;
     }
     
     // If any parameters were changed, queue a write flash command to save them
     if (hasChanges) {
-        fbusXactWriteUplinkFramePhyID(phyID, XACT_FIELD_WRITE_FLASH, appId, 0);
+        fbusXactWriteUplinkFramePhyID(currentPhyID, XACT_FIELD_WRITE_FLASH, currentAppId, 0);
     }
     
     return hasChanges;
