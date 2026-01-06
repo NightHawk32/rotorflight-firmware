@@ -20,6 +20,7 @@
 #ifdef USE_FBUS_MASTER
 
 #include "fbus_sensor.h"
+#include "fbus_xact.h"
 #include "io/gps.h"
 #include "common/maths.h"
 #include "drivers/time.h"
@@ -487,17 +488,18 @@ bool fbusSensorProcessData(uint8_t physicalId, uint16_t appId, uint32_t data)
         return true;
     }
     
-    // Process Servo data (XACT Servo sensor)
-    if (physicalId == FBUS_SENSOR_XACT_SERVO) {
-        // Check if this is servo data
-        if (appId >= FBUS_SERVO_DATA_BASE && appId <= (FBUS_SERVO_DATA_BASE + 0x0F)) {
-            // Convert servo data
-            fbusServoConvertData(data, &fbusServo.currentDeciAmps,
-                                &fbusServo.voltageDeciVolts,
-                                &fbusServo.temperatureDegC);
-            fbusServo.hasData = true;
-            fbusServo.lastUpdateUs = currentTimeUs;
-        }
+    // Process Servo data - ANY device with servo data appId is an XACT servo
+    // Check if appId is in the servo data range (0x6800-0x680F)
+    if (appId >= FBUS_SERVO_DATA_BASE && appId <= (FBUS_SERVO_DATA_BASE + 0x0F)) {
+        // Track this as an XACT servo (regardless of physical ID)
+        fbusXactTrackServo(physicalId, appId, currentTimeUs);
+        
+        // Convert and store servo data
+        fbusServoConvertData(data, &fbusServo.currentDeciAmps,
+                            &fbusServo.voltageDeciVolts,
+                            &fbusServo.temperatureDegC);
+        fbusServo.hasData = true;
+        fbusServo.lastUpdateUs = currentTimeUs;
         
         return true;
     }

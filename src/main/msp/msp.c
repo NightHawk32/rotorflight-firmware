@@ -128,6 +128,10 @@
 #include "pg/sbus_output.h"
 #include "pg/fbus_master.h"
 
+#ifdef USE_FBUS_MASTER
+#include "drivers/fbus_xact.h"
+#endif
+
 #include "rx/rx.h"
 #include "rx/rx_bind.h"
 #include "rx/msp.h"
@@ -1739,6 +1743,52 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
             sbufWriteU8(dst, fbusMasterConfigMutable()->sourceIndex[i]);
             sbufWriteS16(dst, fbusMasterConfigMutable()->sourceRangeLow[i]);
             sbufWriteS16(dst, fbusMasterConfigMutable()->sourceRangeHigh[i]);
+        }
+        break;
+
+    case MSP_XACT_PARAMS:
+        // GET all parameters of the first discovered XACT servo
+        // Response format: phyID, appIdOffset, dataRate, range, direction, pulseType, channel, center, p1, p2, d1, tb, potGap
+        if (fbusMasterIsEnabled()) {
+            uint8_t servoCount = fbusXactGetDiscoveredServoCount();
+            if (servoCount > 0) {
+                // Get the first servo's physical ID
+                uint8_t phyID = fbusXactGetDiscoveredServoPhyID(0);
+                xactServoParams_t params;
+                
+                // Try to get the servo parameters
+                if (fbusXactGetServoParams(phyID, &params)) {
+                    // Write all 13 parameters
+                    sbufWriteU8(dst, params.physicalId);      // 0x00
+                    sbufWriteU8(dst, params.appIdOffset);     // 0x01
+                    sbufWriteU16(dst, params.dataRate);        // 0x02
+                    sbufWriteU8(dst, params.range);           // 0x04
+                    sbufWriteU8(dst, params.direction);       // 0x05
+                    sbufWriteU8(dst, params.pulseType);       // 0x06
+                    sbufWriteU8(dst, params.channel);         // 0x07
+                    sbufWriteU8(dst, params.center);          // 0x08
+                    sbufWriteU8(dst, params.p1);              // 0x11
+                    sbufWriteU8(dst, params.p2);              // 0x12
+                    sbufWriteU8(dst, params.d1);              // 0x13
+                    sbufWriteU8(dst, params.tb);              // 0x15
+                    sbufWriteU8(dst, params.potGap);          // 0x21
+                } else {
+                    // No parameters available yet, return zeros
+                    for (int i = 0; i < 13; i++) {
+                        sbufWriteU8(dst, 0);
+                    }
+                }
+            } else {
+                // No servos discovered, return zeros
+                for (int i = 0; i < 13; i++) {
+                    sbufWriteU8(dst, 0);
+                }
+            }
+        } else {
+            // FBUS master not enabled, return zeros
+            for (int i = 0; i < 13; i++) {
+                sbufWriteU8(dst, 0);
+            }
         }
         break;
 #endif
@@ -3406,6 +3456,53 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         }
         break;
     }
+#endif
+
+#ifdef USE_FBUS_MASTER
+    case MSP_SET_XACT_SCAN:
+        // Start a new sensor discovery phase on FBUS master
+        if (fbusMasterIsEnabled()) {
+            fbusXactStartSensorDiscovery();
+        } else {
+            return MSP_RESULT_ERROR;
+        }
+        break;
+
+    case MSP_SET_XACT_PARAMS:
+        // SET all servo parameters - collect from GUI, compare with cache, write only differences
+        // Request format: phyID (1), appId (2), then all 13 parameters
+        if (fbusMasterIsEnabled() && sbufBytesRemaining(src) >= 14) {            
+            // Read all parameters from the request
+            uint8_t phyID = fbusXactGetDiscoveredServoPhyID(0);
+            xactServoParams_t params;
+            
+            // Try to get the servo parameters
+            if (fbusXactGetServoParams(phyID, &params)) {
+                xactServoParams_t newParams;
+                newParams.physicalId = sbufReadU8(src);
+                newParams.appIdOffset = sbufReadU8(src);
+                newParams.dataRate = sbufReadU16(src);
+                newParams.range = sbufReadU8(src);
+                newParams.direction = sbufReadU8(src);
+                newParams.pulseType = sbufReadU8(src);
+                newParams.channel = sbufReadU8(src);
+                newParams.center = sbufReadU8(src);
+                newParams.p1 = sbufReadU8(src);
+                newParams.p2 = sbufReadU8(src);
+                newParams.d1 = sbufReadU8(src);
+                newParams.tb = sbufReadU8(src);
+                newParams.potGap = sbufReadU8(src);
+                            // Compare with cache and write only differences
+                if (!fbusXactCompareAndWriteParams(phyID, FBUS_SERVO_DATA_BASE + params.appIdOffset, &newParams)) {
+                    return MSP_RESULT_ERROR;
+                }
+            }else{
+                return MSP_RESULT_ERROR;
+            }           
+        } else {
+            return MSP_RESULT_ERROR;
+        }
+        break;
 #endif
 
     case MSP_SET_NAME:

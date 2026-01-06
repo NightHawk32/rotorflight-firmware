@@ -29,6 +29,7 @@
 #include "flight/mixer.h"
 #include "drivers/sbus_output.h"
 #include "drivers/fbus_sensor.h"
+#include "drivers/fbus_xact.h"
 #include "pg/fbus_master.h"
 #include "pg/sbus_output.h"
 #include "rx/frsky_crc.h"
@@ -136,20 +137,36 @@ void fbusMasterPrepareFrame(fbusMasterFrame_t *frame, uint16_t *channels, timeUs
              memset(&frame->downlink, 0, sizeof(fbusMasterDownlink_t));
             frame->downlink.length = FBUS_DOWNLINK_PAYLOAD_SIZE;
             
-            // Check if we should poll telemetry this frame
-            bool shouldPollTelemetry = (telemetryFrameCounter % telemetryFrameInterval) == 0;
-            telemetryFrameCounter++;
-            
-            if (!shouldPollTelemetry) {
-                // Don't poll telemetry - send NULL frame
-                frame->downlink.phyID = 0;
-                frame->downlink.prim = FBUS_FRAME_ID_NULL;
-                frame->downlink.appId = 0;
-                frame->downlink.data[0] = 0;
-                frame->downlink.data[1] = 0;
-                frame->downlink.data[2] = 0;
-                frame->downlink.data[3] = 0;
+            // Check if XACT is busy (reading or writing)
+            if (fbusXactIsBusy()) {
+                // XACT is busy - process XACT queue and skip normal telemetry
+                if (fbusXactProcessQueue(&frame->downlink)) {
+                    // XACT command was queued and frame prepared
+                } else {
+                    // No XACT command ready, send NULL frame
+                    frame->downlink.phyID = 0;
+                    frame->downlink.prim = FBUS_FRAME_ID_NULL;
+                    frame->downlink.appId = 0;
+                    frame->downlink.data[0] = 0;
+                    frame->downlink.data[1] = 0;
+                    frame->downlink.data[2] = 0;
+                    frame->downlink.data[3] = 0;
+                }
             } else {
+                // Check if we should poll telemetry this frame
+                bool shouldPollTelemetry = (telemetryFrameCounter % telemetryFrameInterval) == 0;
+                telemetryFrameCounter++;
+                
+                if (!shouldPollTelemetry) {
+                    // Don't poll telemetry - send NULL frame
+                    frame->downlink.phyID = 0;
+                    frame->downlink.prim = FBUS_FRAME_ID_NULL;
+                    frame->downlink.appId = 0;
+                    frame->downlink.data[0] = 0;
+                    frame->downlink.data[1] = 0;
+                    frame->downlink.data[2] = 0;
+                    frame->downlink.data[3] = 0;
+                } else {
                 // Poll telemetry - use normal telemetry logic
                 // Sensor forwarding is now handled in the receiver (fbus.c)
                 switch (fbusMasterTelemetryState) {
@@ -180,6 +197,7 @@ void fbusMasterPrepareFrame(fbusMasterFrame_t *frame, uint16_t *channels, timeUs
                         break;
                     default:
                         break;
+                }
                 }
             }
     
@@ -229,6 +247,22 @@ void processDownlinkFrame(uint8_t *data)
             
             // Process the sensor data
             fbusSensorProcessData(downlink.phyID, downlink.appId, sensorData);
+        }
+        // Process XACT servo response frames
+        else if (downlink.prim == FBUS_FRAME_ID_RESPONSE) {
+            // XACT response frame format:
+            // appId = App ID (16-bit)
+            // data[0] = FIELDID
+            // data[1] = DATA1 (parameter value)
+            uint16_t appId = downlink.appId;
+            uint8_t fieldId = downlink.data[0];
+            uint16_t dataValue = (uint16_t)downlink.data[1] | ((uint16_t)downlink.data[2] << 8);
+            
+            // Store the parameter value
+            fbusXactSetServoParam(downlink.phyID, fieldId, appId, dataValue);
+            
+            // Notify XACT that response was received
+            fbusXactNotifyResponse(downlink.phyID, fieldId);
         }
     }
 }
@@ -373,5 +407,8 @@ void fbusMasterInit()
     
     // Initialize FBUS sensor system
     fbusSensorInit();
+    
+    // Initialize XACT servo programming module
+    fbusXactInit();
 }
 

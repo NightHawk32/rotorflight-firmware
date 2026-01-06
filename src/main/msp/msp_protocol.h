@@ -208,6 +208,10 @@
 
 #define MSP_UID                              160
 
+#define MSP_SET_XACT_SCAN                    161
+#define MSP_XACT_PARAMS                      162
+#define MSP_SET_XACT_PARAMS                  163
+
 #define MSP_GPSSVINFO                        164
 #define MSP_GPSSTATISTICS                    166
 
