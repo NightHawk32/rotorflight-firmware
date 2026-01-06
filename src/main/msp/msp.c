@@ -1774,19 +1774,19 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
                     sbufWriteU8(dst, params.potGap);          // 0x21
                 } else {
                     // No parameters available yet, return zeros
-                    for (int i = 0; i < 13; i++) {
+                    for (int i = 0; i < 14; i++) {
                         sbufWriteU8(dst, 0);
                     }
                 }
             } else {
                 // No servos discovered, return zeros
-                for (int i = 0; i < 13; i++) {
+                for (int i = 0; i < 14; i++) {
                     sbufWriteU8(dst, 0);
                 }
             }
         } else {
             // FBUS master not enabled, return zeros
-            for (int i = 0; i < 13; i++) {
+            for (int i = 0; i < 14; i++) {
                 sbufWriteU8(dst, 0);
             }
         }
