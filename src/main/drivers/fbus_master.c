@@ -130,78 +130,71 @@ void fbusMasterPrepareFrame(fbusMasterFrame_t *frame, uint16_t *channels, timeUs
     uint8_t crc = frskyCheckSum((uint8_t *)&(frame->c16.type), FBUS_MASTER_CONTROL_FRAME_PAYLOAD_SIZE);
     frame->c16.crc = crc;
 
-    switch (fbusMasterPayloadState)
-    {
-    case FBUS_MASTER_TELEMETRY:
-
-         memset(&frame->downlink, 0, sizeof(fbusMasterDownlink_t));
-        frame->downlink.length = FBUS_DOWNLINK_PAYLOAD_SIZE;
-        
-        // Check if we should poll telemetry this frame
-        bool shouldPollTelemetry = (telemetryFrameCounter % telemetryFrameInterval) == 0;
-        telemetryFrameCounter++;
-        
-        if (!shouldPollTelemetry) {
-            // Don't poll telemetry - send NULL frame
-            frame->downlink.phyID = 0;
-            frame->downlink.prim = FBUS_FRAME_ID_NULL;
-            frame->downlink.appId = 0;
-            frame->downlink.data[0] = 0;
-            frame->downlink.data[1] = 0;
-            frame->downlink.data[2] = 0;
-            frame->downlink.data[3] = 0;
-        } else {
-            // Poll telemetry - use normal telemetry logic
-            // Sensor forwarding is now handled in the receiver (fbus.c)
-            switch (fbusMasterTelemetryState)
-            {
-        case FBUS_MASTER_SCAN_PHY_ID:
-                // Initialize scan start time on first scan
-                if (scanStartTimeUs == 0) {
-                    scanStartTimeUs = currentTimeUs;
-                }
-                
-                // Check if scan time has elapsed
-                if (cmpTimeUs(currentTimeUs, scanStartTimeUs) >= (timeDelta_t)scanDurationUs) {
-                    // Scan time complete, switch to query mode
-                    fbusMasterTelemetryState = FBUS_MASTER_QUERY_PHY_ID;
-                    break;
-                }
-                
-                currentPhysId = currentPhysId == FC_COMMON_ID ? currentPhysId + 1 : currentPhysId;
-                if(currentPhysId > FBUS_MAX_PHYS_ID)
-                {
-                    currentPhysId = 0;
-                }
-
-                frame->downlink.phyID = currentPhysId;
-                frame->downlink.prim = FBUS_FRAME_ID_DATA;
-                currentPhysId++;
-                break;
-            case FBUS_MASTER_QUERY_PHY_ID:
-                currentPhysId = phsIdList[physIdCnt];
-                frame->downlink.phyID = currentPhysId;
-                frame->downlink.prim = FBUS_FRAME_ID_DATA;
-                physIdCnt = physIdCnt == physIdsfound-1 ? 0 : physIdCnt + 1;
-                break;
-            
-            default:
-                break;
-            }
-        }
-
-        smartportMasterPhyIDFillCheckBits(&frame->downlink.phyID);
-        crc = frskyCheckSum((uint8_t *)&frame->downlink.phyID, FBUS_DOWNLINK_PAYLOAD_SIZE);
-        frame->downlink.crc = crc;
-
-        break;
-
-    case FBUS_MASTER_OTA:
-        //ToDo
-        break;
+    switch (fbusMasterPayloadState) {
+        case FBUS_MASTER_TELEMETRY:
     
-    default:
-        break;
+             memset(&frame->downlink, 0, sizeof(fbusMasterDownlink_t));
+            frame->downlink.length = FBUS_DOWNLINK_PAYLOAD_SIZE;
+            
+            // Check if we should poll telemetry this frame
+            bool shouldPollTelemetry = (telemetryFrameCounter % telemetryFrameInterval) == 0;
+            telemetryFrameCounter++;
+            
+            if (!shouldPollTelemetry) {
+                // Don't poll telemetry - send NULL frame
+                frame->downlink.phyID = 0;
+                frame->downlink.prim = FBUS_FRAME_ID_NULL;
+                frame->downlink.appId = 0;
+                frame->downlink.data[0] = 0;
+                frame->downlink.data[1] = 0;
+                frame->downlink.data[2] = 0;
+                frame->downlink.data[3] = 0;
+            } else {
+                // Poll telemetry - use normal telemetry logic
+                // Sensor forwarding is now handled in the receiver (fbus.c)
+                switch (fbusMasterTelemetryState) {
+                    case FBUS_MASTER_SCAN_PHY_ID:
+                    // Initialize scan start time on first scan
+                        if (scanStartTimeUs == 0) {
+                            scanStartTimeUs = currentTimeUs;
+                        }
+                             // Check if scan time has elapsed
+                        if (cmpTimeUs(currentTimeUs, scanStartTimeUs) >= (timeDelta_t)scanDurationUs) {
+                            // Scan time complete, switch to query mode
+                            fbusMasterTelemetryState = FBUS_MASTER_QUERY_PHY_ID;
+                            break;
+                        }
+                             currentPhysId = currentPhysId == FC_COMMON_ID ? currentPhysId + 1 : currentPhysId;
+                        if (currentPhysId > FBUS_MAX_PHYS_ID) {
+                            currentPhysId = 0;
+                        }
+                             frame->downlink.phyID = currentPhysId;
+                        frame->downlink.prim = FBUS_FRAME_ID_DATA;
+                        currentPhysId++;
+                        break;
+                    case FBUS_MASTER_QUERY_PHY_ID:
+                        currentPhysId = phsIdList[physIdCnt];
+                        frame->downlink.phyID = currentPhysId;
+                        frame->downlink.prim = FBUS_FRAME_ID_DATA;
+                        physIdCnt = (physIdCnt == physIdsfound - 1) ? 0 : physIdCnt + 1;
+                        break;
+                    default:
+                        break;
+                }
+            }
+    
+            smartportMasterPhyIDFillCheckBits(&frame->downlink.phyID);
+            crc = frskyCheckSum((uint8_t *)&frame->downlink.phyID, FBUS_DOWNLINK_PAYLOAD_SIZE);
+            frame->downlink.crc = crc;
+    
+            break;
+    
+        case FBUS_MASTER_OTA:
+            //ToDo
+            break;
+        
+        default:
+            break;
     }
 
 }
@@ -269,16 +262,16 @@ float fbusMasterGetChannelValue(uint8_t channel)
         fbusMasterConfig()->sourceType[channel];
     const uint8_t source_index = fbusMasterConfig()->sourceIndex[channel];
     switch (source_type) {
-    case SBUS_OUT_SOURCE_NONE:
-        return 0;
-    case SBUS_OUT_SOURCE_RX:
-        return sbusOutGetRX(source_index);
-    case SBUS_OUT_SOURCE_MIXER:
-        return sbusOutGetValueMixer(source_index);
-    case SBUS_OUT_SOURCE_SERVO:
-        return sbusOutGetServo(source_index);
-    case SBUS_OUT_SOURCE_MOTOR:
-        return sbusOutGetMotor(source_index);
+        case SBUS_OUT_SOURCE_NONE:
+            return 0;
+        case SBUS_OUT_SOURCE_RX:
+            return sbusOutGetRX(source_index);
+        case SBUS_OUT_SOURCE_MIXER:
+            return sbusOutGetValueMixer(source_index);
+        case SBUS_OUT_SOURCE_SERVO:
+            return sbusOutGetServo(source_index);
+        case SBUS_OUT_SOURCE_MOTOR:
+            return sbusOutGetMotor(source_index);
     }
     return 0;
 }
