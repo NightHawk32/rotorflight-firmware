@@ -224,6 +224,57 @@ This is the Rotorflight Flight Controller Firmware - a safety-critical embedded 
 - Avoid direct register access when possible
 - Document any hardware-specific requirements
 
+### Compiler Warnings and Code Quality
+
+#### Strict Compilation Standards
+- The project compiles with `-Werror` (treat warnings as errors) to enforce code quality
+- All compiler warnings must be resolved before code can be merged
+- This ensures zero-tolerance for potential bugs and code quality issues
+
+#### Unused Variables (`-Werror=unused-variable`)
+- **Never declare variables that are not used**
+- Remove any unused variable declarations immediately
+- Common scenarios to watch for:
+  * Variables declared but never read
+  * Buffer declarations that become obsolete after refactoring
+  * Temporary variables left over from debugging
+  * Parameters that are no longer needed after code changes
+
+**Example - Bad:**
+```c
+static uint8_t unused_buffer[32];  // Declared but never used - COMPILATION ERROR
+
+void processData(void)
+{
+    int temp_value;  // Declared but never used - COMPILATION ERROR
+    int result = calculate();
+    return result;
+}
+```
+
+**Example - Good:**
+```c
+// Only declare variables that are actually used
+void processData(void)
+{
+    int result = calculate();
+    return result;
+}
+```
+
+#### Best Practices for Avoiding Unused Variables
+1. **Declare variables close to their first use** - This makes it obvious if they're actually needed
+2. **Review variable usage during refactoring** - When changing code logic, check if all variables are still needed
+3. **Remove dead code immediately** - Don't leave unused declarations "just in case"
+4. **Use compiler warnings during development** - Fix warnings as they appear, don't accumulate them
+5. **Test compilation regularly** - Ensure code compiles cleanly with all warning flags enabled
+
+#### Other Important Warning Flags
+- `-Werror=implicit-function-declaration` - All functions must be properly declared
+- `-Werror=return-type` - All non-void functions must return a value
+- `-Werror=uninitialized` - Variables must be initialized before use
+- `-Werror=format` - Printf-style format strings must match argument types
+
 ## Code Review Checklist
 
 When writing or reviewing code, verify:

@@ -184,9 +184,6 @@ static bool bmi323GyroRead(gyroDev_t *gyro);
 static bool bmi323AccRead(accDev_t *acc);
 static void bmi323ExtiHandler(extiCallbackRec_t *cb);
 
-// DMA buffer for accelerometer reads
-static DMA_DATA uint8_t accBuf[32];
-
 // BMI323 uses 16-bit register access via SPI
 static uint16_t bmi323RegisterRead(const extDevice_t *dev, bmi323Register_e registerId)
 {
