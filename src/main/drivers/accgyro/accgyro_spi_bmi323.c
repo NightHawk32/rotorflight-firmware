@@ -187,7 +187,16 @@ static void bmi323ExtiHandler(extiCallbackRec_t *cb);
 // DMA buffer for accelerometer reads
 static DMA_DATA uint8_t accBuf[32];
 
-// BMI323 uses 16-bit register access via SPI
+/**
+ * Read a 16-bit BMI323 register over SPI.
+ *
+ * Performs a BMI323 SPI register access and returns the 16-bit register value
+ * assembled from the device's response (LSB first, then MSB).
+ *
+ * @param dev SPI device handle for the BMI323.
+ * @param registerId Register address to read.
+ * @returns `uint16_t` containing the register value (LSB in the low byte, MSB in the high byte).
+ */
 static uint16_t bmi323RegisterRead(const extDevice_t *dev, bmi323Register_e registerId)
 {
     uint8_t rxBuf[3] = {0, 0, 0};
@@ -208,6 +217,17 @@ static uint16_t bmi323RegisterRead(const extDevice_t *dev, bmi323Register_e regi
     return (rxBuf[2] << 8) | rxBuf[1];
 }
 
+/**
+ * Write a 16-bit value to a BMI323 register over SPI.
+ *
+ * Writes the 16-bit `value` to the register identified by `registerId` in
+ * little-endian order (LSB first). If `delayMs` is non-zero, delays for the
+ * specified number of milliseconds after the write completes.
+ *
+ * @param registerId Register address to write.
+ * @param value 16-bit value to write (LSB transmitted first).
+ * @param delayMs Milliseconds to delay after the write; 0 for no delay.
+ */
 static void bmi323RegisterWrite(const extDevice_t *dev, bmi323Register_e registerId, uint16_t value, unsigned delayMs)
 {
     uint8_t data[3];
@@ -222,13 +242,31 @@ static void bmi323RegisterWrite(const extDevice_t *dev, bmi323Register_e registe
     }
 }
 
-// Soft reset the BMI323
+/**
+ * Issue a soft reset to the BMI323 sensor and allow it time to settle.
+ *
+ * Sends the sensor's soft-reset command and delays briefly to let the device complete reset and become ready.
+ *
+ * @param dev Pointer to the external device representing the BMI323 sensor.
+ */
 static void bmi323SoftReset(const extDevice_t *dev)
 {
     //give the device time to settle
     bmi323RegisterWrite(dev, BMI323_REG_CMD, BMI323_CMD_SOFTRESET, 50);
 }
 
+/**
+ * Probe the device on the given SPI bus and detect a BMI323 sensor.
+ *
+ * Performs a dummy read to switch the device to SPI mode, issues a soft reset,
+ * re-reads the chip ID and checks error/status registers to confirm the part is
+ * a BMI323 and is ready.
+ *
+ * @param dev SPI device descriptor to probe; the function configures the SPI clock
+ *            on this device during detection.
+ * @returns `BMI_323_SPI` if a BMI323 sensor was detected and reports ready,
+ *          `MPU_NONE` otherwise.
+ */
 uint8_t bmi323Detect(const extDevice_t *dev)
 {
     spiSetClkDivisor(dev, spiCalculateDivider(BMI323_MAX_SPI_CLK_HZ));
@@ -263,6 +301,12 @@ uint8_t bmi323Detect(const extDevice_t *dev)
     return MPU_NONE;
 }
 
+/**
+ * Configure a gyroDev for BMI323 SPI operation when the device was detected.
+ *
+ * @param gyro Gyro device instance to configure; must have detection results populated.
+ * @returns `true` if the gyro device was configured for BMI323 SPI, `false` otherwise.
+ */
 bool bmi323SpiGyroDetect(gyroDev_t *gyro)
 {
     if (gyro->mpuDetectionResult.sensor != BMI_323_SPI) {
@@ -276,6 +320,16 @@ bool bmi323SpiGyroDetect(gyroDev_t *gyro)
     return true;
 }
 
+/**
+ * Configure an accelerometer device to use the BMI323 SPI driver when detected.
+ *
+ * Checks the detection result on `acc` and, if the sensor is BMI_323_SPI, wires
+ * the device to the shared SPI buffers and sets its init/read callbacks, then
+ * registers the device on the bus.
+ *
+ * @param acc Accelerometer device whose detection result will be checked and configured.
+ * @returns `true` if the device was configured for BMI323 SPI, `false` otherwise.
+ */
 bool bmi323SpiAccDetect(accDev_t *acc)
 {
     if (acc->mpuDetectionResult.sensor != BMI_323_SPI) {
@@ -294,12 +348,27 @@ bool bmi323SpiAccDetect(accDev_t *acc)
     return true;
 }
 
+/**
+ * Mark the associated gyro device as having new data available in response to an EXTI callback.
+ *
+ * @param cb Pointer to the EXTI callback record; its parent gyroDev_t will be marked dataReady.
+ */
 static void bmi323ExtiHandler(extiCallbackRec_t *cb)
 {
     gyroDev_t *gyro = container_of(cb, gyroDev_t, exti);
     gyro->dataReady = true;
 }
 
+/**
+ * Initialize BMI323 gyroscope over SPI and configure its interrupts.
+ *
+ * Configures the SPI clock for the device, selects a gyro output data rate based
+ * on the hardware LPF setting, programs gyroscope mode/range/averaging/bandwidth,
+ * maps and configures the data-ready interrupt (INT1), initializes EXTI when an
+ * interrupt tag is provided, and sets the gyro data register base.
+ *
+ * @param gyro Pointer to the gyro device instance to initialize.
+ */
 static void bmi323SpiGyroInit(gyroDev_t *gyro)
 {
     extDevice_t *dev = &gyro->dev;
@@ -362,6 +431,16 @@ static void bmi323SpiGyroInit(gyroDev_t *gyro)
     gyro->gyroDataReg = BMI323_REG_GYR_DATA_X;
 }
 
+/**
+ * Handle gyro DMA/interrupt completion and mark gyro data as ready.
+ *
+ * Updates the gyro device's recorded maximum DMA duration if the recent DMA duration
+ * exceeds the previous maximum and sets the device's dataReady flag to true.
+ *
+ * @param arg Pointer-sized value containing a pointer to the gyroDev_t instance.
+ *            The function casts this `uint32_t` to `gyroDev_t *`.
+ * @returns BUS_READY indicating the bus is ready. 
+ */
 busStatus_e bmi323Intcallback(uint32_t arg)
 {
     gyroDev_t *gyro = (gyroDev_t *)arg;
@@ -376,6 +455,14 @@ busStatus_e bmi323Intcallback(uint32_t arg)
     return BUS_READY;
 }
 
+/**
+ * Initialize the BMI323 accelerometer over SPI and configure its operating mode.
+ *
+ * Sets the SPI clock divisor for the device, writes ACC_CONF to select high-performance
+ * mode with a 16 g range and 800 Hz ODR, and sets acc->acc_1G to 2048 LSB per g.
+ *
+ * @param acc Pointer to the accelerometer device to initialize.
+ */
 static void bmi323SpiAccInit(accDev_t *acc)
 {
     extDevice_t *dev = &acc->gyro->dev;
@@ -392,6 +479,15 @@ static void bmi323SpiAccInit(accDev_t *acc)
     acc->acc_1G = 2048;
 }
 
+/**
+ * Read gyro samples from the BMI323 over SPI and store the raw X/Y/Z ADC values into the provided gyro device.
+ *
+ * Depending on the device's SPI mode and interrupt configuration, this will perform a direct SPI transfer or rely on a pending DMA/interrupt transfer;
+ * on completion the raw 16-bit little-endian samples are written to gyro->gyroADCRaw[X/Y/Z].
+ *
+ * @param gyro Pointer to the gyro device structure to read into and to update mode/transfer state.
+ * @returns `true` if the read completed and raw samples were updated, `false` otherwise.
+ */
 static bool bmi323GyroRead(gyroDev_t *gyro)
 {
     extDevice_t *dev = &gyro->dev;
@@ -463,6 +559,16 @@ static bool bmi323GyroRead(gyroDev_t *gyro)
     return true;
 }
 
+/**
+ * Read accelerometer samples from the BMI323 over SPI and store raw 16-bit X/Y/Z values.
+ *
+ * When the device is in interrupt or polled SPI modes this issues an SPI transfer to read
+ * 6 bytes of accelerometer data (16-bit little-endian per axis) and writes them into
+ * acc->ADCRaw[]; in DMA mode it extracts samples from the already-filled receive buffer.
+ *
+ * @param acc Accelerometer device instance whose SPI device and ADCRaw[] will be used/updated.
+ * @returns `true` if the read was processed (samples copied into acc->ADCRaw when available), `false` otherwise.
+ */
 static bool bmi323AccRead(accDev_t *acc)
 {
     extDevice_t *dev = &acc->gyro->dev;
@@ -509,6 +615,12 @@ static bool bmi323AccRead(accDev_t *acc)
     return true;
 }
 
+/**
+ * Read the BMI323 INT1 interrupt status register.
+ *
+ * @param gyro Gyroscope device whose BMI323 INT1 status will be read.
+ * @returns The low 8 bits of the INT1 interrupt status register.
+ */
 uint8_t bmi323InterruptStatus(gyroDev_t *gyro)
 {
     uint16_t intStatus = bmi323RegisterRead(&gyro->dev, BMI323_REG_INT_STATUS_INT1);

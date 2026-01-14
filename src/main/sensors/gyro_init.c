@@ -439,6 +439,17 @@ STATIC_UNIT_TESTED gyroHardware_e gyroDetect(gyroDev_t *dev)
     return gyroHardware;
 }
 
+/**
+ * Attempt to detect a supported gyro for the given sensor and record the result.
+ *
+ * Detects available gyro hardware for gyroSensor using the provided device configuration
+ * and updates gyroSensor->gyroDev.gyroHardware with the detected hardware type.
+ *
+ * @param gyroSensor Sensor instance to probe and update.
+ * @param config Optional device configuration used during detection (may be unused
+ *               depending on build-time gyro support).
+ * @returns `true` if a supported gyro was detected and assigned to the sensor, `false` otherwise.
+ */
 static bool gyroDetectSensor(gyroSensor_t *gyroSensor, const gyroDeviceConfig_t *config)
 {
 #if defined(USE_GYRO_MPU6050) || defined(USE_GYRO_MPU3050) || defined(USE_GYRO_MPU6500) || defined(USE_GYRO_SPI_MPU6500) || defined(USE_GYRO_SPI_MPU6000) \
