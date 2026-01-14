@@ -1,0 +1,308 @@
+# Rotorflight Firmware Coding Guidelines
+
+## Project Context
+This is the Rotorflight Flight Controller Firmware - a safety-critical embedded C project for single-rotor helicopters, forked from Betaflight 4.3. Code quality and consistency are paramount for flight safety.
+
+## Core Coding Standards
+
+### MISRA C Compliance
+- Follow MISRA C:2012 guidelines for safety-critical embedded systems
+- Avoid undefined behavior and implementation-defined behavior
+- Use explicit type conversions
+- Minimize use of pointers and dynamic memory allocation
+- Document any necessary deviations from MISRA rules
+
+### Indentation and Formatting
+- **ALWAYS use 4 spaces for indentation** - Never use tabs
+- Maximum line length: 120 characters
+- Place opening braces on the same line for functions and control structures
+- Use consistent spacing around operators
+- Example:
+  ```c
+  void pidController(const pidProfile_t *pidProfile, timeUs_t currentTimeUs)
+  {
+      if (condition) {
+          // 4-space indented code
+          doSomething();
+      }
+  }
+  ```
+
+### Naming Conventions
+
+#### Variables and Functions
+- **MUST use lowercase_with_underscores** (snake_case)
+- Be descriptive and avoid abbreviations unless widely understood
+- Examples:
+  ```c
+  float gyro_rate;
+  int motor_count;
+  pidProfile_t *current_pid_profile;
+  
+  void pidApplySetpoint(uint8_t axis);
+  float pidGetDT(void);
+  ```
+
+#### Constants and Macros
+- **MUST use UPPERCASE_WITH_UNDERSCORES**
+- Use `#define` for compile-time constants
+- Use `const` for runtime constants
+- Examples:
+  ```c
+  #define MAX_SUPPORTED_MOTORS 8
+  #define PID_PROFILE_COUNT 3
+  #define PITCH_P_TERM_SCALE 0.01f
+  
+  const uint8_t error_decay_rate_curve[PID_LOOKUP_CURVE_POINTS] = {...};
+  ```
+
+#### Type Definitions
+- Use `typedef` with `_t` suffix for custom types
+- Use descriptive names
+- Examples:
+  ```c
+  typedef struct pidProfile_s {
+      uint8_t pid_mode;
+      pidGains_t pid[XYZ_AXIS_COUNT];
+  } pidProfile_t;
+  ```
+
+### Code Organization
+
+#### File Structure
+- Group related functions by subsystem
+- Use clear section comments to separate major functional groups
+- Order: includes → defines → types → static variables → static functions → public functions
+- Example structure:
+  ```c
+  // Includes
+  #include "platform.h"
+  #include "flight/pid.h"
+  
+  // Defines and constants
+  #define MAX_VALUE 100
+  
+  // Type definitions
+  typedef struct {...} myType_t;
+  
+  // Static variables
+  static FAST_DATA_ZERO_INIT pidData_t pid;
+  
+  // Static helper functions
+  static void helperFunction(void) {...}
+  
+  // Public API functions
+  void publicFunction(void) {...}
+  ```
+
+#### Function Organization
+- Group functions by logical subsystem (e.g., all PID-related functions together)
+- Use section comments like:
+  ```c
+  //// Access functions
+  
+  //// Adjustment functions
+  
+  //// Internal functions
+  ```
+
+### Comments and Documentation
+
+#### Function Documentation
+- Document all public functions with purpose, parameters, and return values
+- Use clear, concise comments
+- Example:
+  ```c
+  /**
+   * Calculate PID output for given axis
+   * @param axis The axis to calculate (PID_ROLL, PID_PITCH, PID_YAW)
+   * @return PID output value
+   */
+  float pidGetOutput(int axis);
+  ```
+
+#### Inline Comments
+- Explain complex algorithms or non-obvious logic
+- Use `//` for single-line comments
+- Use `/* */` for multi-line comments
+- Keep comments up-to-date with code changes
+
+### Data Types
+
+#### Standard Types
+- Use fixed-width integer types: `uint8_t`, `uint16_t`, `uint32_t`, `int8_t`, `int16_t`, `int32_t`
+- Use `bool` for boolean values (requires `<stdbool.h>`)
+- Use `float` for floating-point (avoid `double` in embedded systems unless necessary)
+
+#### Type Safety
+- Always use explicit type casts
+- Avoid implicit conversions
+- Use `const` for read-only parameters and variables
+
+### Memory Management
+
+#### Static Allocation
+- Prefer static allocation over dynamic allocation
+- Use `FAST_DATA_ZERO_INIT` macro for performance-critical data
+- Example:
+  ```c
+  static FAST_DATA_ZERO_INIT pidData_t pid;
+  ```
+
+#### Initialization
+- Always initialize variables at declaration when possible
+- Use designated initializers for structs and arrays
+- Example:
+  ```c
+  pidProfile_t profile = {
+      .pid_mode = 3,
+      .error_limit = {100, 100, 100}
+  };
+  ```
+
+### Control Flow
+
+#### Conditionals
+- Always use braces for if/else blocks, even single statements
+- Avoid deep nesting (max 3-4 levels)
+- Example:
+  ```c
+  if (condition) {
+      doSomething();
+  } else {
+      doSomethingElse();
+  }
+  ```
+
+#### Loops
+- Prefer `for` loops with clear bounds
+- Avoid `goto` except for error handling in deeply nested code
+- Use `break` and `continue` judiciously
+
+### Error Handling
+
+#### Defensive Programming
+- Validate function parameters
+- Check return values
+- Use assertions for debugging
+- Handle edge cases explicitly
+
+#### Return Values
+- Use meaningful return values
+- Document error conditions
+- Consider using error codes or status enums
+
+### Platform-Specific Code
+
+#### Conditional Compilation
+- Use `#ifdef` for platform-specific features
+- Keep platform-specific code isolated
+- Example:
+  ```c
+  #ifdef USE_DSHOT
+      dshotSetPidLoopTime(pidLooptime);
+  #endif
+  ```
+
+#### Hardware Abstraction
+- Use HAL (Hardware Abstraction Layer) functions
+- Avoid direct register access when possible
+- Document any hardware-specific requirements
+
+## Code Review Checklist
+
+When writing or reviewing code, verify:
+
+- [ ] Uses 4-space indentation (no tabs)
+- [ ] Variables use lowercase_with_underscores
+- [ ] Constants use UPPERCASE_WITH_UNDERSCORES
+- [ ] Functions are grouped by subsystem
+- [ ] All functions have clear, descriptive names
+- [ ] Complex logic is commented
+- [ ] No magic numbers (use named constants)
+- [ ] Fixed-width integer types are used
+- [ ] Memory is managed safely (prefer static allocation)
+- [ ] Error conditions are handled
+- [ ] Code follows MISRA C guidelines where applicable
+- [ ] Platform-specific code is properly isolated
+
+## Examples from Codebase
+
+### Good Variable Naming
+```c
+float gyro_rate;
+uint8_t motor_count;
+pidProfile_t *current_pid_profile;
+const float error_decay_rate;
+```
+
+### Good Constant Naming
+```c
+#define MAX_SUPPORTED_MOTORS 8
+#define PID_PROFILE_COUNT 3
+#define PITCH_P_TERM_SCALE 0.01f
+```
+
+### Good Function Organization
+```c
+//// Access functions
+
+float pidGetDT(void)
+{
+    return pid.dT;
+}
+
+float pidGetPidFrequency(void)
+{
+    return pid.freq;
+}
+
+//// Adjustment functions
+
+int get_ADJUSTMENT_PID_PROFILE(void)
+{
+    return getCurrentPidProfileIndex() + 1;
+}
+
+void set_ADJUSTMENT_PID_PROFILE(int value)
+{
+    changePidProfile(value - 1);
+}
+```
+
+### Good Indentation
+```c
+static void pidApplyCyclicMode3(uint8_t axis)
+{
+    const float setpoint = pidApplySetpoint(axis);
+    const float gyroRate = pidApplyGyroRate(axis);
+    const float errorRate = setpoint - gyroRate;
+    
+    if (isAirborne() || pid.errorDecayRateGround == 0) {
+        errorDecayRate = pid.errorDecayRateCyclic * pidTableLookup(curve, error_decay_rate_curve, PID_LOOKUP_CURVE_POINTS) * 0.08f;
+        errorDecayLimit = pid.errorDecayLimitCyclic * pidTableLookup(curve, error_decay_limit_curve, PID_LOOKUP_CURVE_POINTS) * 0.08f;
+    } else {
+        errorDecayRate = pid.errorDecayRateGround;
+        errorDecayLimit = 3600;
+    }
+}
+```
+
+## AI Assistant Instructions
+
+When generating or modifying code for this project:
+
+1. **Always follow the naming conventions** - lowercase_with_underscores for variables/functions, UPPERCASE for constants
+2. **Use 4-space indentation** - Never generate code with tabs
+3. **Group related functions** - Keep subsystem functions together with section comments
+4. **Be explicit** - Use clear variable names, avoid abbreviations, add comments for complex logic
+5. **Follow MISRA principles** - Avoid undefined behavior, use explicit casts, validate inputs
+6. **Match existing style** - Look at surrounding code and maintain consistency
+7. **Document changes** - Add comments explaining non-obvious logic or algorithms
+8. **Consider safety** - This is flight control software; prioritize correctness and reliability
+
+## References
+
+- MISRA C:2012 Guidelines for safety-critical systems
+- Betaflight 4.3 codebase (parent project)
+- Rotorflight documentation: https://www.rotorflight.org/
