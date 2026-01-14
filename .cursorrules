@@ -15,7 +15,7 @@ This is the Rotorflight Flight Controller Firmware - a safety-critical embedded 
 ### Indentation and Formatting
 - **ALWAYS use 4 spaces for indentation** - Never use tabs
 - Maximum line length: 120 characters
-- Place opening braces on the same line for functions and control structures
+- Use K&R brace style: function opening braces on the next line, control structure opening braces on the same line
 - Use consistent spacing around operators
 - Example:
   ```c

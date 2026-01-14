@@ -245,7 +245,7 @@ uint8_t bmi323Detect(const extDevice_t *dev)
     // Read chip ID
     uint16_t chipId = bmi323RegisterRead(dev, BMI323_REG_CHIP_ID);
 
-    //MSB of the reigster is reserved
+    //MSB of the register is reserved
     uint16_t chipID_LSB = chipId & 0xFF;
     
     if (chipID_LSB == BMI323_CHIP_ID) {
@@ -362,8 +362,6 @@ static void bmi323SpiGyroInit(gyroDev_t *gyro)
     gyro->gyroDataReg = BMI323_REG_GYR_DATA_X;
 }
 
-extiCallbackRec_t bmi323IntCallbackRec;
-
 busStatus_e bmi323Intcallback(uint32_t arg)
 {
     gyroDev_t *gyro = (gyroDev_t *)arg;
@@ -411,7 +409,7 @@ static bool bmi323GyroRead(gyroDev_t *gyro)
         if (gyro->detectedEXTI > GYRO_EXTI_DETECT_THRESHOLD) {
             if (spiUseDMA(dev)) {
                 dev->callbackArg = (uint32_t)gyro;
-                dev->txBuf[1] = BMI323_REG_GYR_DATA_X | 0x80;
+                dev->txBuf[0] = BMI323_REG_GYR_DATA_X | 0x80;
                 gyro->segments[0].len = 8;
                 gyro->segments[0].callback = bmi323Intcallback;
                 gyro->segments[0].u.buffers.txData = dev->txBuf;
