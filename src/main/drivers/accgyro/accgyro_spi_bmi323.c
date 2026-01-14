@@ -282,10 +282,6 @@ bool bmi323SpiAccDetect(accDev_t *acc)
         return false;
     }
     
-    // ACC part uses the same SPI bus as the gyro, so we can just use the gyro's spi instance
-    acc->dev.txBuf = accBuf;
-    acc->dev.rxBuf = &accBuf[32 / 2];
-    
     acc->initFn = bmi323SpiAccInit;
     acc->readFn = bmi323AccRead;
     
