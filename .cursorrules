@@ -15,6 +15,7 @@ This is the Rotorflight Flight Controller Firmware - a safety-critical embedded 
 ### Indentation and Formatting
 - **ALWAYS use 4 spaces for indentation** - Never use tabs
 - Maximum line length: 120 characters
+- **Use minimal blank lines** - One blank line between code blocks is sufficient; avoid excessive vertical spacing
 - Use K&R brace style: function opening braces on the next line, control structure opening braces on the same line
 - Use consistent spacing around operators
 - Example:
@@ -274,6 +275,16 @@ void processData(void)
 - `-Werror=return-type` - All non-void functions must return a value
 - `-Werror=uninitialized` - Variables must be initialized before use
 - `-Werror=format` - Printf-style format strings must match argument types
+
+### Change Documentation
+
+#### Changes.md Requirements
+- **All changes to CLI commands must be documented in Changes.md**
+- **All changes to MSP protocol must be documented in Changes.md**
+- **All changes to default values must be documented in Changes.md**
+- Document the change with clear description of what changed and why
+- Include version information when the change was introduced
+- This ensures users and integrators are aware of breaking changes or new features
 
 ## Code Review Checklist
 
