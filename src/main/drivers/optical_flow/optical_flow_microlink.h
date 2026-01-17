@@ -17,31 +17,10 @@
 
 #pragma once
 
-#include "types.h"
-#include "platform.h"
+#include "drivers/optical_flow/optical_flow.h"
 
-#include "drivers/io.h"
+bool opticalFlowMicrolinkDetect(opticalFlowDev_t *dev);
 
-#include "pg/pg.h"
-
-typedef enum {
-    RANGEFINDER_NONE        = 0,
-    RANGEFINDER_HCSR04      = 1,
-    RANGEFINDER_TFMINI      = 2,
-    RANGEFINDER_TF02        = 3,
-    RANGEFINDER_MICROLINK   = 4,
-} rangefinderType_e;
-
-typedef struct {
-    uint8_t rangefinder_hardware;
-} rangefinderConfig_t;
-
-PG_DECLARE(rangefinderConfig_t, rangefinderConfig);
-
-
-typedef struct {
-    ioTag_t triggerTag;
-    ioTag_t echoTag;
-} sonarConfig_t;
-
-PG_DECLARE(sonarConfig_t, sonarConfig);
+// Get LIDAR/rangefinder data from MicroLink sensor
+uint32_t opticalFlowMicrolinkGetDistance(void);
+uint8_t opticalFlowMicrolinkGetStrength(void);

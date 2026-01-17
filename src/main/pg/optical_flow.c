@@ -15,33 +15,18 @@
  * along with this software. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#pragma once
-
 #include "types.h"
 #include "platform.h"
 
-#include "drivers/io.h"
+#ifdef USE_OPTICAL_FLOW
 
-#include "pg/pg.h"
+#include "pg/pg_ids.h"
+#include "pg/optical_flow.h"
 
-typedef enum {
-    RANGEFINDER_NONE        = 0,
-    RANGEFINDER_HCSR04      = 1,
-    RANGEFINDER_TFMINI      = 2,
-    RANGEFINDER_TF02        = 3,
-    RANGEFINDER_MICROLINK   = 4,
-} rangefinderType_e;
+PG_REGISTER_WITH_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig, PG_OPTICAL_FLOW_CONFIG, 0);
 
-typedef struct {
-    uint8_t rangefinder_hardware;
-} rangefinderConfig_t;
+PG_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig,
+    .optical_flow_hardware = OPTICAL_FLOW_NONE,
+);
 
-PG_DECLARE(rangefinderConfig_t, rangefinderConfig);
-
-
-typedef struct {
-    ioTag_t triggerTag;
-    ioTag_t echoTag;
-} sonarConfig_t;
-
-PG_DECLARE(sonarConfig_t, sonarConfig);
+#endif
