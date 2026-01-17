@@ -169,6 +169,7 @@ COMMON_SRC = \
             drivers/light_ws2811strip.c \
             drivers/rangefinder/rangefinder_hcsr04.c \
             drivers/rangefinder/rangefinder_lidartf.c \
+            drivers/rangefinder/rangefinder_microlink.c \
             drivers/serial_escserial.c \
             drivers/vtx_common.c \
             drivers/vtx_table.c \
@@ -190,6 +191,8 @@ COMMON_SRC = \
             osd/osd_warnings.c \
             sensors/barometer.c \
             sensors/rangefinder.c \
+            sensors/optical_flow.c \
+            drivers/optical_flow/optical_flow_microlink.c \
             telemetry/telemetry.c \
             telemetry/crsf.c \
             telemetry/ghst.c \

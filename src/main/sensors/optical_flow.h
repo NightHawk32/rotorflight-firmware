@@ -17,31 +17,26 @@
 
 #pragma once
 
-#include "types.h"
-#include "platform.h"
+#include <stdint.h>
 
-#include "drivers/io.h"
+#include "drivers/optical_flow/optical_flow.h"
 
-#include "pg/pg.h"
-
-typedef enum {
-    RANGEFINDER_NONE        = 0,
-    RANGEFINDER_HCSR04      = 1,
-    RANGEFINDER_TFMINI      = 2,
-    RANGEFINDER_TF02        = 3,
-    RANGEFINDER_MICROLINK   = 4,
-} rangefinderType_e;
-
-typedef struct {
-    uint8_t rangefinder_hardware;
-} rangefinderConfig_t;
-
-PG_DECLARE(rangefinderConfig_t, rangefinderConfig);
+#include "pg/optical_flow.h"
 
 
-typedef struct {
-    ioTag_t triggerTag;
-    ioTag_t echoTag;
-} sonarConfig_t;
+typedef struct opticalFlow_s {
+    opticalFlowDev_t dev;
+    int16_t flowX;
+    int16_t flowY;
+    uint8_t quality;
+    timeMs_t lastValidResponseTimeMs;
+} opticalFlow_t;
 
-PG_DECLARE(sonarConfig_t, sonarConfig);
+bool opticalFlowInit(void);
+
+int16_t opticalFlowGetLatestX(void);
+int16_t opticalFlowGetLatestY(void);
+uint8_t opticalFlowGetLatestQuality(void);
+
+void opticalFlowUpdate(void);
+bool opticalFlowIsHealthy(void);

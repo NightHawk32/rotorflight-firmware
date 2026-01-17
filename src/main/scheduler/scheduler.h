@@ -123,6 +123,9 @@ typedef enum {
 #ifdef USE_RANGEFINDER
     TASK_RANGEFINDER,
 #endif
+#ifdef USE_OPTICAL_FLOW
+    TASK_OPTICAL_FLOW,
+#endif
 #ifdef USE_DASHBOARD
     TASK_DASHBOARD,
 #endif
