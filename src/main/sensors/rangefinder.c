@@ -41,6 +41,7 @@
 #include "drivers/rangefinder/rangefinder.h"
 #include "drivers/rangefinder/rangefinder_hcsr04.h"
 #include "drivers/rangefinder/rangefinder_lidartf.h"
+#include "drivers/rangefinder/rangefinder_microlink.h"
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"
@@ -104,6 +105,15 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
             if (lidarTF02Detect(dev)) {
                 rangefinderHardware = RANGEFINDER_TF02;
                 rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_TF_TASK_PERIOD_MS));
+            }
+#endif
+            break;
+
+        case RANGEFINDER_MICROLINK:
+#if defined(USE_OPTICAL_FLOW)
+            if (rangefinderMicrolinkDetect(dev)) {
+                rangefinderHardware = RANGEFINDER_MICROLINK;
+                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(10)); // 100Hz
             }
 #endif
             break;
