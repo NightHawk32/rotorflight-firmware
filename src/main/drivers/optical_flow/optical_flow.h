@@ -17,31 +17,18 @@
 
 #pragma once
 
-#include "types.h"
-#include "platform.h"
+#define OPTICAL_FLOW_OUT_OF_RANGE        (-1)
+#define OPTICAL_FLOW_HARDWARE_FAILURE    (-2)
+#define OPTICAL_FLOW_NO_NEW_DATA         (-3)
 
-#include "drivers/io.h"
+struct opticalFlowDev_s;
+typedef void (*opticalFlowOpInitFuncPtr)(struct opticalFlowDev_s * dev);
+typedef void (*opticalFlowOpUpdateFuncPtr)(struct opticalFlowDev_s * dev);
+typedef bool (*opticalFlowOpReadFuncPtr)(struct opticalFlowDev_s * dev, int16_t *flowX, int16_t *flowY, uint8_t *quality);
 
-#include "pg/pg.h"
-
-typedef enum {
-    RANGEFINDER_NONE        = 0,
-    RANGEFINDER_HCSR04      = 1,
-    RANGEFINDER_TFMINI      = 2,
-    RANGEFINDER_TF02        = 3,
-    RANGEFINDER_MICROLINK   = 4,
-} rangefinderType_e;
-
-typedef struct {
-    uint8_t rangefinder_hardware;
-} rangefinderConfig_t;
-
-PG_DECLARE(rangefinderConfig_t, rangefinderConfig);
-
-
-typedef struct {
-    ioTag_t triggerTag;
-    ioTag_t echoTag;
-} sonarConfig_t;
-
-PG_DECLARE(sonarConfig_t, sonarConfig);
+typedef struct opticalFlowDev_s {
+    // function pointers
+    opticalFlowOpInitFuncPtr init;
+    opticalFlowOpUpdateFuncPtr update;
+    opticalFlowOpReadFuncPtr read;
+} opticalFlowDev_t;
