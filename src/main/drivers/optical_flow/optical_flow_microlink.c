@@ -47,7 +47,7 @@
 
 // Message IDs
 #define MICOLINK_MSG_ID_RANGE_SENSOR 0x51
-#define MICOLINK_MSG_ID_CONFIG       0x12
+#define MICOLINK_MSG_ID_CONFIG       0x02
 
 // Configuration payload length
 #define MICOLINK_CONFIG_PAYLOAD_LEN  18
@@ -246,7 +246,7 @@ static void opticalFlowMicrolinkInit(opticalFlowDev_t *dev)
     const serialPortConfig_t *portConfig = findSerialPortConfig(FUNCTION_MICROLINK);
     
     if (portConfig) {
-        microlinkData.serialPort = openSerialPort(portConfig->identifier, FUNCTION_MICROLINK, NULL, NULL, 115200, MODE_RX, 0);
+        microlinkData.serialPort = openSerialPort(portConfig->identifier, FUNCTION_MICROLINK, NULL, NULL, 115200, MODE_RXTX, 0);
     } else {
         microlinkData.serialPort = NULL;
     }
