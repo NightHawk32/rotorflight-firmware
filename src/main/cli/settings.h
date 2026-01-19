@@ -241,7 +241,9 @@ extern const char * const lookupTableMagHardware[];
 
 extern const char * const lookupTableRangefinderHardware[];
 
+#if defined(USE_SENSOR_NAMES) || defined(USE_OPTICAL_FLOW)
 extern const char * const lookupTableOpticalFlowHardware[];
+#endif
 
 extern const char * const lookupTableLedstripColors[];
 
