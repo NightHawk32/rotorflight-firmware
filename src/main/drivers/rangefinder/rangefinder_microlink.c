@@ -47,6 +47,7 @@ static void rangefinderMicrolinkUpdate(rangefinderDev_t *dev)
 }
 
 // Return distance in centimeters
+// Returns RANGEFINDER_NO_NEW_DATA if no new data available
 static int32_t rangefinderMicrolinkRead(rangefinderDev_t *dev)
 {
     UNUSED(dev);
@@ -69,6 +70,12 @@ static int32_t rangefinderMicrolinkRead(rangefinderDev_t *dev)
     }
     
     return distanceCm;
+}
+
+// Get MicroLink signal strength (quality indicator)
+uint8_t rangefinderMicrolinkGetQuality(void)
+{
+    return opticalFlowMicrolinkGetStrength();
 }
 
 bool rangefinderMicrolinkDetect(rangefinderDev_t *dev)

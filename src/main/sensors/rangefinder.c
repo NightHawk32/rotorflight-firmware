@@ -274,7 +274,17 @@ bool rangefinderProcess(float cosTiltAngle)
             rangefinder.rawAltitude = RANGEFINDER_HARDWARE_FAILURE;
         }
 
-        rangefinder.snr = computePseudoSnr(distance);
+        // Use MicroLink quality factor if available, otherwise compute pseudo-SNR
+#if defined(USE_RANGEFINDER) && defined(USE_OPTICAL_FLOW)
+        if (detectedSensors[SENSOR_INDEX_RANGEFINDER] == RANGEFINDER_MICROLINK) {
+            // Get quality directly from MicroLink sensor (0-255, higher is better)
+            // Invert it so lower values indicate better quality (to match SNR logic)
+            rangefinder.snr = 255 - rangefinderMicrolinkGetQuality();
+        } else
+#endif
+        {
+            rangefinder.snr = computePseudoSnr(distance);
+        }
 
         if (rangefinder.snrThresholdReached == false && rangefinder.rawAltitude > 0) {
 

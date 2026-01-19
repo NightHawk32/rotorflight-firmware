@@ -26,7 +26,7 @@
 PG_REGISTER_WITH_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig, PG_OPTICAL_FLOW_CONFIG, 0);
 
 PG_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig,
-    .optical_flow_hardware = OPTICAL_FLOW_NONE,
+    .optical_flow_hardware = OPTICAL_FLOW_MICROLINK,
 );
 
 #endif

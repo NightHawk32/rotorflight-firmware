@@ -43,6 +43,7 @@
 #include "sensors/gyro.h"
 #include "sensors/gyro_init.h"
 #include "sensors/initialisation.h"
+#include "sensors/optical_flow.h"
 #include "sensors/rangefinder.h"
 #include "sensors/sensors.h"
 
@@ -82,6 +83,10 @@ bool sensorsAutodetect(void)
 
 #ifdef USE_BARO
     baroDetect(&baro.dev, barometerConfig()->baro_hardware);
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+    opticalFlowInit();
 #endif
 
 #ifdef USE_RANGEFINDER

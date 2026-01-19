@@ -247,6 +247,9 @@ extern uint8_t _dmaram_end__;
 #define USE_SERIALRX_SUMD       // Graupner Hott protocol
 #define USE_SBUS_OUTPUT         // SBus Output feature
 
+#define USE_RANGEFINDER
+#define USE_OPTICAL_FLOW
+
 #if (TARGET_FLASH_SIZE > 256)
 #define PID_PROFILE_COUNT 6
 #define CONTROL_RATE_PROFILE_COUNT  6
