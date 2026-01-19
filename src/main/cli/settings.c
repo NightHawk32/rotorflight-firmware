@@ -110,6 +110,7 @@
 #include "pg/fbus_master.h"
 #include "pg/sport_master.h"
 #include "pg/bus_servo.h"
+#include "pg/optical_flow.h"
 
 #include "rx/a7105_flysky.h"
 #include "rx/cc2500_frsky_common.h"
@@ -127,6 +128,7 @@
 #include "sensors/esc_sensor.h"
 #include "sensors/gyro.h"
 #include "sensors/rangefinder.h"
+#include "sensors/optical_flow.h"
 
 #include "telemetry/frsky_hub.h"
 #include "telemetry/ibus_shared.h"
@@ -164,7 +166,12 @@ const char * const lookupTableMagHardware[] = {
 #endif
 #if defined(USE_SENSOR_NAMES) || defined(USE_RANGEFINDER)
 const char * const lookupTableRangefinderHardware[] = {
-    "NONE", "HCSR04", "TFMINI", "TF02"
+    "NONE", "HCSR04", "TFMINI", "TF02", "MICROLINK"
+};
+#endif
+#if defined(USE_SENSOR_NAMES) || defined(USE_OPTICAL_FLOW)
+const char * const lookupTableOpticalFlowHardware[] = {
+    "NONE", "MICROLINK"
 };
 #endif
 
@@ -575,6 +582,9 @@ const lookupTableEntry_t lookupTables[] = {
 #endif
 #ifdef USE_RANGEFINDER
     LOOKUP_TABLE_ENTRY(lookupTableRangefinderHardware),
+#endif
+#ifdef USE_OPTICAL_FLOW
+    LOOKUP_TABLE_ENTRY(lookupTableOpticalFlowHardware),
 #endif
 #ifdef USE_GYRO_OVERFLOW_CHECK
     LOOKUP_TABLE_ENTRY(lookupTableGyroOverflowCheck),
@@ -1609,6 +1619,11 @@ const clivalue_t valueTable[] = {
 // PG_RANGEFINDER_CONFIG
 #ifdef USE_RANGEFINDER
     { "rangefinder_hardware", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_RANGEFINDER_HARDWARE }, PG_RANGEFINDER_CONFIG, offsetof(rangefinderConfig_t, rangefinder_hardware) },
+#endif
+
+// PG_OPTICAL_FLOW_CONFIG
+#ifdef USE_OPTICAL_FLOW
+    { "optical_flow_hardware", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OPTICAL_FLOW_HARDWARE }, PG_OPTICAL_FLOW_CONFIG, offsetof(opticalFlowConfig_t, optical_flow_hardware) },
 #endif
 
 // PG_PINIO_CONFIG
