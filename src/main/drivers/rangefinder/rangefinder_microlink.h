@@ -20,3 +20,4 @@
 #include "drivers/rangefinder/rangefinder.h"
 
 bool rangefinderMicrolinkDetect(rangefinderDev_t *dev);
+uint8_t rangefinderMicrolinkGetQuality(void);
