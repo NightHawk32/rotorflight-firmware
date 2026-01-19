@@ -47,6 +47,10 @@
 
 // Message IDs
 #define MICOLINK_MSG_ID_RANGE_SENSOR 0x51
+#define MICOLINK_MSG_ID_CONFIG       0x12
+
+// Configuration payload length
+#define MICOLINK_CONFIG_PAYLOAD_LEN  18
 
 // Parser states
 typedef enum {
@@ -92,8 +96,8 @@ typedef struct __attribute__((packed)) {
 
 // Driver data
 typedef struct {
-    int16_t flowX;
-    int16_t flowY;
+    int16_t flowX;          // Flow in X direction (scaled to cm/s)
+    int16_t flowY;          // Flow in Y direction (scaled to cm/s)
     uint8_t quality;
     uint32_t distance;       // LIDAR distance in mm
     uint8_t strength;        // LIDAR signal strength
@@ -132,14 +136,23 @@ static void micolinkProcessMessage(const micolinkMsg_t *msg)
             micolinkPayloadRangeSensor_t payload;
             memcpy(&payload, msg->payload, sizeof(payload));
             
-            // Update optical flow data
-            microlinkData.flowX = payload.flow_vel_x;
-            microlinkData.flowY = payload.flow_vel_y;
-            microlinkData.quality = payload.flow_quality;
-            
-            // Update LIDAR/rangefinder data
+            // Update LIDAR/rangefinder data first
             microlinkData.distance = payload.distance;
             microlinkData.strength = payload.strength;
+            
+            // Convert optical flow data: flow_vel is in cm/s@1m, need to scale by actual distance
+            // True flow (cm/s) = flow_vel_x * distance(m)
+            // Distance is in mm, so distance(m) = distance / 1000
+            if (payload.distance > 0) {
+                // Scale flow by distance: flowX = flow_vel_x * (distance_mm / 1000)
+                microlinkData.flowX = (payload.flow_vel_x * (int32_t)payload.distance) / 1000;
+                microlinkData.flowY = (payload.flow_vel_y * (int32_t)payload.distance) / 1000;
+            } else {
+                // No valid distance, can't scale flow properly
+                microlinkData.flowX = 0;
+                microlinkData.flowY = 0;
+            }
+            microlinkData.quality = payload.flow_quality;
             
             microlinkData.newData = true;
         }
@@ -291,6 +304,81 @@ uint32_t opticalFlowMicrolinkGetDistance(void)
 uint8_t opticalFlowMicrolinkGetStrength(void)
 {
     return microlinkData.strength;
+}
+
+// Send configuration to MicroLink sensor
+bool opticalFlowMicrolinkSetConfig(const microlinkConfig_t *config)
+{
+    if (!microlinkData.serialPort || !config) {
+        return false;
+    }
+    
+    // Build configuration message based on recovered data format:
+    // 0xEF·0x01·0x00·0x02·SEQ·PAYLOAD_LEN·0x12·0x02·0x00·PROT·0x00·ORI·FS_LSB·FS_MSB·...·CHECKSUM
+    
+    uint8_t configMsg[MICOLINK_MAX_LEN];
+    uint8_t idx = 0;
+    
+    // Header
+    configMsg[idx++] = MICOLINK_MSG_HEAD;  // 0xEF
+    configMsg[idx++] = 0x01;               // dev_id
+    configMsg[idx++] = 0x00;               // sys_id
+    configMsg[idx++] = MICOLINK_MSG_ID_CONFIG;  // 0x02 (msg_id)
+    configMsg[idx++] = 0x00;               // seq (sequence number, can be incremented if needed)
+    
+    // Payload length placeholder (will be filled later)
+    uint8_t payloadLenIdx = idx;
+    configMsg[idx++] = 0x00;  // Placeholder for payload length
+    
+    // Payload starts here
+    uint8_t payloadStart = idx;
+    
+    // Command ID
+    configMsg[idx++] = 0x12;  // Config command
+    configMsg[idx++] = 0x02;  // Sub-command
+    
+    // Protocol type (byte 8 in the frame)
+    configMsg[idx++] = 0x00;  // Reserved
+    configMsg[idx++] = (uint8_t)config->protocol;  // Protocol: 0=Microlink, 1=MSP, 2=MAV_APM, 3=MAV_PX4
+    
+    // Orientation (bytes 10-11)
+    configMsg[idx++] = 0x00;  // Reserved
+    configMsg[idx++] = (uint8_t)config->orientation;  // Orientation: 0=0°, 1=90°, 2=180°, 3=270°
+    
+    // Flow scale (bytes 12-13, little-endian)
+    configMsg[idx++] = (uint8_t)(config->flowScale & 0xFF);        // Flow scale LSB
+    configMsg[idx++] = (uint8_t)((config->flowScale >> 8) & 0xFF); // Flow scale MSB
+    
+    // Fill remaining payload bytes with standard values from the recovered data
+    configMsg[idx++] = 0x00;  // byte 14
+    configMsg[idx++] = 0x04;  // byte 15
+    configMsg[idx++] = 0x09;  // byte 16
+    configMsg[idx++] = 0x00;  // byte 17
+    configMsg[idx++] = 0x00;  // byte 18
+    configMsg[idx++] = 0x01;  // byte 19
+    configMsg[idx++] = 0x58;  // byte 20
+    configMsg[idx++] = 0x00;  // byte 21
+    configMsg[idx++] = 0x00;  // byte 22
+    configMsg[idx++] = 0x00;  // byte 23
+    configMsg[idx++] = 0x00;  // byte 24
+    
+    // Calculate payload length
+    uint8_t payloadLen = idx - payloadStart;
+    configMsg[payloadLenIdx] = payloadLen;
+    
+    // Calculate checksum (sum of all bytes except checksum itself)
+    uint8_t checksum = 0;
+    for (uint8_t i = 0; i < idx; i++) {
+        checksum += configMsg[i];
+    }
+    configMsg[idx++] = checksum;
+    
+    // Send the configuration message
+    for (uint8_t i = 0; i < idx; i++) {
+        serialWrite(microlinkData.serialPort, configMsg[i]);
+    }
+    
+    return true;
 }
 
 #endif // USE_OPTICAL_FLOW
