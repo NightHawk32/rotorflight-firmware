@@ -306,6 +306,8 @@ int telemetrySensorValue(sensor_id_e id)
             return getGovernorState();
         case TELEM_GOVERNOR_FLAGS:
             return 0;
+        case TELEM_GOVERNOR_IDLE_THROTTLE:
+            return governorConfig()->gov_idle_throttle;
 
         case TELEM_PID_PROFILE:
             return getCurrentPidProfileIndex() + 1;
@@ -483,6 +485,7 @@ bool telemetrySensorActive(sensor_id_e id)
         case TELEM_RESCUE_STATE:
         case TELEM_GOVERNOR_STATE:
         case TELEM_GOVERNOR_FLAGS:
+        case TELEM_GOVERNOR_IDLE_THROTTLE:
             return true;
 
         case TELEM_PID_PROFILE:

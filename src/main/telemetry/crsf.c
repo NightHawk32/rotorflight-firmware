@@ -817,6 +817,7 @@ static telemetrySensor_t crsfCustomTelemetrySensors[] =
     TLM_SENSOR(ARMING_DISABLE_FLAGS,    0x1203,   200,  3000,    0,     U32),
     TLM_SENSOR(RESCUE_STATE,            0x1204,   200,  3000,    0,     U8),
     TLM_SENSOR(GOVERNOR_STATE,          0x1205,   200,  3000,    0,     U8),
+    TLM_SENSOR(GOVERNOR_IDLE_THROTTLE,  0x1206,   200,  3000,    0,     U8),
 
     TLM_SENSOR(PID_PROFILE,             0x1211,   200,  3000,    0,     U8),
     TLM_SENSOR(RATES_PROFILE,           0x1212,   200,  3000,    0,     U8),

@@ -165,6 +165,8 @@ typedef enum
     TELEM_RPM                           = 108,
     TELEM_TEMP                          = 109,
 
+    TELEM_GOVERNOR_IDLE_THROTTLE        = 110,
+
     TELEM_SENSOR_COUNT
 
 } sensor_id_e;
