@@ -2958,7 +2958,11 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
     
     case MSP_SET_4WIF_ESC_FWD_PROG:
         {
-            uint8_t id = sbufReadS8(src); 
+            if (ARMING_FLAG(ARMED)) {
+                return MSP_RESULT_ERROR;
+            }
+
+            uint8_t id = sbufReadS8(src);
             escSet4WIfESC(id);
         }
         break;
