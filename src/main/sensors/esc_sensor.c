@@ -405,7 +405,7 @@ static bool am32paramWritten[MAX_SUPPORTED_MOTORS] = {false};
     esc4wayDeinit();
 
     start = millis();
-    while( millis() < start + 100);
+    while( millis() < start + 200);
 
     //re-enmable motors
     esc4wayRelease();
