@@ -51,6 +51,8 @@
 
 #include "fc/runtime_config.h"
 
+#include "scheduler/scheduler.h"
+
 #include "flight/mixer.h"
 
 #include "io/serial.h"
@@ -335,6 +337,8 @@ static void updateConsumption(timeUs_t currentTimeUs)
 static uint32_t fwif_eepromAddr = 0;
 static bool am32paramCached[MAX_SUPPORTED_MOTORS] = {false};
 static bool am32paramWritten[MAX_SUPPORTED_MOTORS] = {false};
+static bool am32WritePending = false;
+static uint8_t am32WriteEscId = MAX_SUPPORTED_MOTORS;
  
 
  static bool fourwayIfFetchData(uint8_t escID)
@@ -495,7 +499,15 @@ static bool am32paramWritten[MAX_SUPPORTED_MOTORS] = {false};
     return retVal;
  }
 
-
+static void scheduleAm32Write(uint8_t id)
+{
+    am32WriteEscId = id;
+    am32WritePending = true;
+    rescheduleTask(TASK_ESC_SENSOR, TASK_PERIOD_MS(1));
+    setTaskEnabled(TASK_ESC_SENSOR, true);
+}
+ 
+ 
 /*
  * BLHeli32 / KISS Telemetry Protocol
  *
@@ -3854,6 +3866,15 @@ static void castleSensorProcess(timeUs_t currentTimeUs)
 
 void escSensorProcess(timeUs_t currentTimeUs)
 {
+    if (am32WritePending) {
+        am32WritePending = false;
+        fourwayIfWriteData(am32WriteEscId);
+        if (!featureIsEnabled(FEATURE_ESC_SENSOR) && escSensorPort == NULL) {
+            setTaskEnabled(TASK_ESC_SENSOR, false);
+            return;
+        }
+    }
+
     if (escSensorPort && motorIsEnabled()) {
         switch (escSensorConfig()->protocol) {
             case ESC_SENSOR_PROTO_BLHELI32:
@@ -4065,9 +4086,11 @@ bool escCommitParameters()
     if(escID < MAX_SUPPORTED_MOTORS) {
         // if escID is >= MAX_SUPPORTED_MOTORS, 4WIF is deselected
         // Avoid performing 4WIF write ops while armed which would disable motors
-        if (!ARMING_FLAG(ARMED)) {
-            return fourwayIfWriteData(escID);
+        if (ARMING_FLAG(ARMED)) {
+            return false;
         }
+        scheduleAm32Write(escID);
+        return true;
     }
     return paramUpdBuffer[PARAM_HEADER_SIG] == paramBuffer[PARAM_HEADER_SIG] &&
         (paramUpdBuffer[PARAM_HEADER_VER] & PARAM_HEADER_VER_MASK) == (paramBuffer[PARAM_HEADER_VER] & PARAM_HEADER_VER_MASK) &&
