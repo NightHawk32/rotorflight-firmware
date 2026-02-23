@@ -3093,6 +3093,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
                 return MSP_RESULT_ERROR;
             }
 
+            uint8_t id = sbufReadU8(src);
             if (escSelect4WIfById(id) != 0) {
                 return MSP_RESULT_ERROR;
             }

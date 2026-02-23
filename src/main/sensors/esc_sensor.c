@@ -465,7 +465,7 @@ static bool am32paramWritten[MAX_SUPPORTED_MOTORS] = {false};
                 }
 
                 if (matchedEepromAddr != 0) {
-                    bool status = fwifCmdDeviceWrite(AM32_NUM_EEPROM_BYTES, paramPayload, matchedEepromAddr);
+                    bool status = fwifCmdDeviceWrite(AM32_NUM_EEPROM_BYTES, paramUpdPayload , matchedEepromAddr);
                     if (status) { /* return upon success */
                         retVal = true;
                         /* invalidate cache */
@@ -4066,7 +4066,7 @@ bool escCommitParameters()
         // if escID is >= MAX_SUPPORTED_MOTORS, 4WIF is deselected
         // Avoid performing 4WIF write ops while armed which would disable motors
         if (!ARMING_FLAG(ARMED)) {
-            fourwayIfWriteData(escID);
+            return fourwayIfWriteData(escID);
         }
     }
     return paramUpdBuffer[PARAM_HEADER_SIG] == paramBuffer[PARAM_HEADER_SIG] &&
