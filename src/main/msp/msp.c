@@ -3087,8 +3087,21 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
                 return MSP_RESULT_ERROR;
             }
 
-            uint8_t id = sbufReadS8(src);
-            escSet4WIfESC(id);
+            /* Expect exactly one byte: the ESC id */
+            const int rem = sbufBytesRemaining(src);
+            if (rem != 1) {
+                return MSP_RESULT_ERROR;
+            }
+
+            /* Read unsigned id and validate range before calling selection helper */
+            uint8_t id = sbufReadU8(src);
+            if (!(id < MAX_SUPPORTED_MOTORS || id == 0xFF)) {
+                return MSP_RESULT_ERROR;
+            }
+
+            if (escSelect4WIfById(id) != 0) {
+                return MSP_RESULT_ERROR;
+            }
         }
         break;
 #endif
