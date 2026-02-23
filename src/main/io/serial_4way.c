@@ -444,7 +444,7 @@ bool fwifCmdDeviceRead(uint8_t num_bytes, uint8_t *data_buffer, uint32_t addr)
     ioMem_t ioMem;
     ioMem.D_NUM_BYTES = num_bytes;
     ioMem.D_PTR_I = data_buffer;
-    ioMem.D_FLASH_ADDR_H = (uint8_t) (addr >> 8);
+    ioMem.D_FLASH_ADDR_H = (uint8_t) ((addr >> 8) & 0xFF);
     ioMem.D_FLASH_ADDR_L = (uint8_t) (addr & 0xFF);
     switch (CurrentInterfaceMode)
     {
@@ -491,7 +491,7 @@ bool fwifCmdDeviceWrite(uint8_t num_bytes, const uint8_t *data_buffer, uint32_t 
     if (addr > 0xFFFFu) {
         return false;
     }
-    ioMem.D_FLASH_ADDR_H = (uint8_t) (addr >> 8);
+    ioMem.D_FLASH_ADDR_H = (uint8_t) ((addr >> 8) & 0xFF);
     ioMem.D_FLASH_ADDR_L = (uint8_t) (addr & 0xFF);
     switch (CurrentInterfaceMode)
     {

@@ -327,6 +327,9 @@ static void updateConsumption(timeUs_t currentTimeUs)
 #define AM32_SIG_F3_2KB 0x35
 #define AM32_F3_2KB_EEPROM_ADDR 0xF800
 #define AM32_NUM_EEPROM_BYTES 48
+#define AM32_ESC_NAME_LENGTH 32
+#define AM32_EEPROOM_VERSION_3 3
+#define AM32_EEPROM_VERSION_POS 1
 
 #define ESC_INIT_DELAY 1500
 
@@ -353,6 +356,9 @@ static bool am32paramWritten[MAX_SUPPORTED_MOTORS] = {false};
 
     if(am32paramCached[escID]){
         paramPayloadLength = AM32_NUM_EEPROM_BYTES;
+        if (paramPayload[AM32_EEPROM_VERSION_POS] == AM32_EEPROOM_VERSION_3) {
+            paramPayloadLength += AM32_ESC_NAME_LENGTH;
+        }
         return true; // params fetched already, so just return the data
     }
 
@@ -399,6 +405,11 @@ static bool am32paramWritten[MAX_SUPPORTED_MOTORS] = {false};
                         am32paramCached[escID] = true;
                         am32paramWritten[escID] = false;
                         paramPayloadLength = AM32_NUM_EEPROM_BYTES;
+                        if (paramPayload[AM32_EEPROM_VERSION_POS] == AM32_EEPROOM_VERSION_3) {
+                            if (fwifCmdDeviceRead(AM32_ESC_NAME_LENGTH, paramPayload + AM32_NUM_EEPROM_BYTES, matchedEepromAddr - AM32_ESC_NAME_LENGTH)) {
+                                paramPayloadLength += AM32_ESC_NAME_LENGTH;
+                            }
+                        }
                         /* remember the eeprom addr for future writes */
                         fwif_eepromAddr = matchedEepromAddr;
                     }
