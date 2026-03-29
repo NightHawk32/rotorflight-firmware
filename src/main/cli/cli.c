@@ -153,6 +153,7 @@ bool cliMode = false;
 #include "pg/usb.h"
 #include "pg/vtx_table.h"
 #include "pg/freq.h"
+#include "pg/fbus_master.h"
 
 #include "rx/rx_bind.h"
 #include "rx/rx_spi.h"
@@ -5190,6 +5191,9 @@ const cliResourceValue_t resourceTable[] = {
 #endif
 #ifdef USE_FREQ_SENSOR
     DEFA( OWNER_FREQ,          PG_FREQ_SENSOR_CONFIG, freqConfig_t, ioTag, FREQ_SENSOR_PORT_COUNT ),
+#endif
+#ifdef USE_FBUS_MASTER
+    DEFS( OWNER_FBUS_MASTER_SEND, PG_DRIVER_FBUS_MASTER_CONFIG, fbusMasterConfig_t, sendPin ),
 #endif
 };
 

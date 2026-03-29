@@ -275,6 +275,10 @@ void uartTryStartTxDMA(uartPort_t *s)
         if (s->port.txBufferHead == s->port.txBufferTail) {
             // No more data to transmit
             s->txDMAEmpty = true;
+            /* Enable transmission complete interrupt to detect when last byte is sent */
+            if (s->txControlPin) {
+                SET_BIT(s->USARTx->CR1, USART_CR1_TCIE);
+            }
             return;
         }
 
@@ -289,6 +293,11 @@ void uartTryStartTxDMA(uartPort_t *s)
             s->port.txBufferTail = 0;
         }
         s->txDMAEmpty = false;
+
+        /* Set TX control pin high when starting DMA transmission */
+        if (s->txControlPin) {
+            IOHi(s->txControlPin);
+        }
 
         HAL_UART_Transmit_DMA(&s->Handle, (uint8_t *)&s->port.txBuffer[fromwhere], size);
     }
@@ -377,6 +386,10 @@ FAST_IRQ_HANDLER void uartIrqHandler(uartPort_t *s)
                 huart->TxXferCount = 0;
                 /* Disable the UART Transmit Data Register Empty Interrupt */
                 CLEAR_BIT(huart->Instance->CR1, USART_CR1_TXEIE);
+                /* Enable transmission complete interrupt to detect when last byte is sent */
+                if (s->txControlPin) {
+                    SET_BIT(huart->Instance->CR1, USART_CR1_TCIE);
+                }
             } else {
                 if ((huart->Init.WordLength == UART_WORDLENGTH_9B) && (huart->Init.Parity == UART_PARITY_NONE)) {
                     huart->Instance->TDR = (((uint16_t) s->port.txBuffer[s->port.txBufferTail]) & (uint16_t) 0x01FFU);
@@ -391,6 +404,16 @@ FAST_IRQ_HANDLER void uartIrqHandler(uartPort_t *s)
     // UART transmitter in DMA mode, transmission completed
 
     if ((__HAL_UART_GET_IT(huart, UART_IT_TC) != RESET)) {
+        /* Clear TC flag first */
+        __HAL_UART_CLEAR_IT(huart, UART_CLEAR_TCF);
+        
+        /* Set TX control pin low when transmission is complete */
+        if (s->txControlPin) {
+            IOLo(s->txControlPin);
+            /* Disable transmission complete interrupt */
+            CLEAR_BIT(huart->Instance->CR1, USART_CR1_TCIE);
+        }
+        
         HAL_UART_IRQHandler(huart);
 #ifdef USE_DMA
         if (s->txDMAResource) {

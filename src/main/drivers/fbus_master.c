@@ -28,6 +28,8 @@
 #include "common/time.h"
 #include "flight/mixer.h"
 #include "drivers/sbus_output.h"
+#include "drivers/io.h"
+#include "drivers/serial_uart.h"
 #include "pg/fbus_master.h"
 #include "pg/sbus_output.h"
 #include "rx/frsky_crc.h"
@@ -51,6 +53,8 @@ enum {
 };
 
 serialPort_t *fbusMasterPort = NULL;
+static IO_t sendPin = IO_NONE;
+
 #define FC_COMMON_ID 0x1B
 #define FBUS_MAX_PHYS_ID 0x1B
 
@@ -275,7 +279,7 @@ void fbusMasterUpdate(timeUs_t currentTimeUs)
     }
     fbusMasterPrepareFrame(&frame, channels);
 
-    // serial output
+    // serial output (TX control pin is handled automatically by UART driver)
     serialWriteBuf(fbusMasterPort, (const uint8_t *)&frame, sizeof(frame));
     readIngoreBytes = sizeof(frame);
     readBytes = 0;
@@ -303,5 +307,20 @@ void fbusMasterInit(void)
             (fbusMasterConfig()->inverted ? SERIAL_INVERTED : SERIAL_NOT_INVERTED) |
             SERIAL_BIDIR |
             (fbusMasterConfig()->pinSwap ? SERIAL_PINSWAP : SERIAL_NOSWAP));
+
+    // Initialize optional send pin and configure UART to control it
+    const ioTag_t sendPinTag = fbusMasterConfig()->sendPin;
+    if (sendPinTag != IO_TAG_NONE) {
+        sendPin = IOGetByTag(sendPinTag);
+        if (sendPin) {
+            IOInit(sendPin, OWNER_FBUS_MASTER_SEND, 0);
+            IOConfigGPIO(sendPin, IOCFG_OUT_PP);
+            IOLo(sendPin);  // Start with pin low (idle state)
+            
+            // Set the TX control pin on the UART port so it's controlled by the UART driver
+            uartPort_t *uartPort = (uartPort_t *)fbusMasterPort;
+            uartPort->txControlPin = sendPin;
+        }
+    }
 }
 

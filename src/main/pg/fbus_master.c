@@ -20,11 +20,12 @@
 
 #include "pg/fbus_master.h"
 #include "drivers/serial.h"
+#include "drivers/io_types.h"
 
 #ifdef USE_FBUS_MASTER
 
 PG_REGISTER_WITH_RESET_FN(fbusMasterConfig_t, fbusMasterConfig,
-                          PG_DRIVER_FBUS_MASTER_CONFIG, 3);
+                          PG_DRIVER_FBUS_MASTER_CONFIG, 4);
 
 void pgResetFn_fbusMasterConfig(fbusMasterConfig_t *config) {
     for (int i = 0; i < FBUS_MASTER_CHANNELS; i++) {
@@ -39,6 +40,9 @@ void pgResetFn_fbusMasterConfig(fbusMasterConfig_t *config) {
 
     // Default to inverted F.Bus (normal for F.Bus receivers).
     config->inverted = 1;
+
+    // Default to no send pin
+    config->sendPin = IO_TAG_NONE;
 }
 
 #endif

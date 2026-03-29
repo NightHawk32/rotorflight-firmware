@@ -19,6 +19,7 @@
 
 #include "common/utils.h"
 #include "pg/pg.h"
+#include "drivers/io_types.h"
 
 #define FBUS_MASTER_CHANNELS 16
 
@@ -56,6 +57,9 @@ typedef struct fbusMasterConfig_s {
     // When ON, the UART output is electrically inverted (F.Bus signal uses
     // inverted logic). When OFF, the output is non-inverted.
     uint8_t inverted;
+
+    // Optional send pin - set to high while sending, low when idle
+    ioTag_t sendPin;
 
 } fbusMasterConfig_t;
 

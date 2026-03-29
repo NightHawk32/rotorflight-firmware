@@ -38,6 +38,7 @@
 
 #include "drivers/dma.h"
 #include "drivers/dma_reqmap.h"
+#include "drivers/io.h"
 #include "drivers/rcc.h"
 #include "drivers/serial.h"
 #include "drivers/serial_uart.h"
@@ -269,12 +270,20 @@ static void uartWrite(serialPort_t *instance, uint8_t ch)
 {
     uartPort_t *uartPort = (uartPort_t *)instance;
 
+    // Check if buffer was empty before adding this byte
+    bool wasEmpty = (uartPort->port.txBufferTail == uartPort->port.txBufferHead);
+
     uartPort->port.txBuffer[uartPort->port.txBufferHead] = ch;
 
     if (uartPort->port.txBufferHead + 1 >= uartPort->port.txBufferSize) {
         uartPort->port.txBufferHead = 0;
     } else {
         uartPort->port.txBufferHead++;
+    }
+
+    // Set TX control pin high when starting transmission from empty buffer
+    if (wasEmpty && uartPort->txControlPin) {
+        IOHi(uartPort->txControlPin);
     }
 
 #ifdef USE_DMA

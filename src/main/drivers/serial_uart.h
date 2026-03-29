@@ -21,6 +21,9 @@
 #pragma once
 
 #include "drivers/dma.h" // For dmaResource_t
+#include "drivers/io_types.h" // For IO_t
+#include "drivers/serial.h" // For serialPort_t, portMode_e, portOptions_e, serialReceiveCallbackPtr
+#include "pg/serial_pinconfig.h" // For serialPinConfig_t
 
 // Since serial ports can be used for any function these buffer sizes should be equal
 // The two largest things that need to be sent are: 1, MSP responses, 2, UBLOX SVINFO packet.
@@ -72,6 +75,7 @@ typedef struct uartPort_s {
 #endif
     USART_TypeDef *USARTx;
     bool txDMAEmpty;
+    IO_t txControlPin;  // Optional pin to control during transmission (e.g., for RS485 DE/RE)
 } uartPort_t;
 
 void uartPinConfigure(const serialPinConfig_t *pSerialPinConfig);
