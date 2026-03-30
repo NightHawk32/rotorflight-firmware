@@ -40,6 +40,7 @@
 #include "sensors/esc_sensor.h"
 #include "sensors/adcinternal.h"
 #include "sensors/acceleration.h"
+#include "drivers/adc.h"
 
 #include "flight/position.h"
 #include "flight/governor.h"
@@ -134,22 +135,75 @@ static int getFbusSensorValue(uint8_t sensorIndex)
     if (sensorIndex >= FBUS_MASTER_MAX_FORWARDED_SENSORS) {
         return 0;
     }
-    
+
     // Get configured physical ID for this sensor slot
     uint8_t physicalId = fbusMasterConfig()->forwardedSensors[sensorIndex];
     if (physicalId > FBUS_MAX_PHYS_ID) {
         return 0;  // Sensor slot not configured
     }
-    
+
     // Get latest sensor frame from the forwarding buffer
     fbusSensorFrame_t frame = {0};
     if (fbusSensorGetForwardedFrame(physicalId, &frame) && frame.valid) {
         return frame.data;
     }
-    
+
     return 0;
 }
 #endif
+
+static int scaleRangeConstrainedInt(int value, int inMin, int inMax, int outMin, int outMax)
+{
+    if (inMax <= inMin) {
+        return outMin;
+    }
+
+    if (value <= inMin) {
+        return outMin;
+    }
+
+    if (value >= inMax) {
+        return outMax;
+    }
+
+    const int32_t numerator = (int32_t)(value - inMin) * (outMax - outMin);
+    const int32_t denominator = inMax - inMin;
+    return outMin + (int)(numerator / denominator);
+}
+
+#ifdef USE_FBUS_MASTER
+static bool getExternalMotorTemperatureFromFbus(int *temperatureDegC)
+{
+    const uint16_t appId = telemetryConfig()->externalMotorTempFbusAppId;
+    return fbusSensorGetTemperatureByAppId(appId, temperatureDegC);
+}
+#endif
+
+static int getExternalMotorTemperature(void)
+{
+    switch (telemetryConfig()->externalMotorTempSource) {
+#ifdef USE_FBUS_MASTER
+        case EXTERNAL_MOTOR_TEMP_SOURCE_FBUS: {
+            int temperatureDegC = 0;
+            return getExternalMotorTemperatureFromFbus(&temperatureDegC) ? temperatureDegC : 0;
+        }
+#endif
+#ifdef USE_ADC
+        case EXTERNAL_MOTOR_TEMP_SOURCE_ADC:
+            if (!adcIsEnabled(ADC_VEXT)) {
+                return 0;
+            }
+            return scaleRangeConstrainedInt(
+                adcGetChannel(ADC_VEXT),
+                telemetryConfig()->externalMotorTempAdcMin,
+                telemetryConfig()->externalMotorTempAdcMax,
+                telemetryConfig()->externalMotorTempMin,
+                telemetryConfig()->externalMotorTempMax);
+#endif
+        default:
+            return 0;
+    }
+}
 
 int telemetrySensorValue(sensor_id_e id)
 {
@@ -249,10 +303,11 @@ int telemetrySensorValue(sensor_id_e id)
             return getEscSensorValue(ESC_SENSOR_COMBINED, 8);
 #endif
         case TELEM_AIR_TEMP:
-        case TELEM_MOTOR_TEMP:
         case TELEM_BATTERY_TEMP:
         case TELEM_EXHAUST_TEMP:
             return 0;
+        case TELEM_MOTOR_TEMP:
+            return getExternalMotorTemperature();
 
         case TELEM_HEADING:
             return attitude.values.yaw;
@@ -477,8 +532,14 @@ bool telemetrySensorActive(sensor_id_e id)
         case TELEM_ESC_TEMP:
         case TELEM_BEC_TEMP:
             return true;
-        case TELEM_AIR_TEMP:
         case TELEM_MOTOR_TEMP:
+#ifdef USE_FBUS_MASTER
+            if (telemetryConfig()->externalMotorTempSource == EXTERNAL_MOTOR_TEMP_SOURCE_FBUS) {
+                return getExternalMotorTemperatureFromFbus(NULL);
+            }
+#endif
+            return telemetryConfig()->externalMotorTempSource != EXTERNAL_MOTOR_TEMP_SOURCE_NONE;
+        case TELEM_AIR_TEMP:
         case TELEM_BATTERY_TEMP:
         case TELEM_EXHAUST_TEMP:
             return false;

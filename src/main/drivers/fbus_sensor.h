@@ -81,6 +81,8 @@ typedef enum {
     FBUS_CURRENT_BASE           = 0x0200,  // 0x0200~0x020F, Current (A/10)
     FBUS_VOLTAGE_BASE           = 0x0210,  // 0x0210~0x021F, Voltage (V/100)
     FBUS_HIGH_PREC_CURRENT_BASE = 0x0220,  // 0x0220~0x022F, Current (A/1000)
+    FBUS_TEMPERATURE1_BASE      = 0x0400,  // 0x0400~0x040F, Temperature 1 (C)
+    FBUS_TEMPERATURE2_BASE      = 0x0410,  // 0x0410~0x041F, Temperature 2 (C)
 } fbusCurrentDataId_e;
 
 typedef enum {
@@ -171,9 +173,11 @@ typedef struct {
     uint32_t currentDeciAmps;        // Current in 0.1A from 0x0200~0x020F
     uint32_t voltageCentiVolts;      // Voltage in 0.01V from 0x0210~0x021F
     uint16_t currentMilliAmps;       // Current in 0.001A from 0x0220~0x022F
+    int16_t temperature1DegC;        // Temperature 1 in C from 0x0400~0x040F
     bool hasCurrent;
     bool hasVoltage;
     bool hasHighPrecisionCurrent;
+    bool hasTemperature1;
     timeUs_t lastUpdateUs;
 } fbusCurrentData_t;
 
@@ -200,6 +204,9 @@ void fbusSensorGetServoData(fbusServoData_t *servoData);
 bool fbusSensorHasServoData(void);
 void fbusSensorGetCurrentData(fbusCurrentData_t *currentData);
 bool fbusSensorHasCurrentData(void);
+bool fbusSensorGetDataByAppId(uint16_t appId, uint32_t *data);
+bool fbusAppIdDecodeTemperature(uint16_t appId, uint32_t rawData, int *temperatureDegC);
+bool fbusSensorGetTemperatureByAppId(uint16_t appId, int *temperatureDegC);
 bool fbusSensorGetBatteryVoltageCentiVolts(uint32_t *voltageCentiVolts);
 void fbusSensorGetEscData(fbusEscData_t *escData);
 bool fbusSensorHasEscData(void);

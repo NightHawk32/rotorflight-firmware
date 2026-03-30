@@ -250,11 +250,13 @@ static fbusDetectedSensorType_e classifySensorTypeByAppId(uint16_t appId)
         return FBUS_DETECTED_SENSOR_FLVSS;
     }
 
-    // FAS current/voltage sensor signatures seen in field captures and FrSky IDs:
-    // current 0x0200~0x020F, voltage 0x0210~0x021F, high-precision current 0x0220~0x022F
-    if ((appId >= 0x0200 && appId <= 0x020F) ||
-        (appId >= 0x0210 && appId <= 0x021F) ||
-        (appId >= 0x0220 && appId <= 0x022F)) {
+    // FAS/current sensor signatures from FrSky Smart Port v3.5.8:
+    // current 0x0200~0x020F, voltage 0x0210~0x021F, high-precision current 0x0220~0x022F,
+    // Temperature 1 0x0400~0x040F.
+    if ((appId >= FBUS_CURRENT_BASE && appId <= (FBUS_CURRENT_BASE + 0x0F)) ||
+        (appId >= FBUS_VOLTAGE_BASE && appId <= (FBUS_VOLTAGE_BASE + 0x0F)) ||
+        (appId >= FBUS_HIGH_PREC_CURRENT_BASE && appId <= (FBUS_HIGH_PREC_CURRENT_BASE + 0x0F)) ||
+        (appId >= FBUS_TEMPERATURE1_BASE && appId <= (FBUS_TEMPERATURE1_BASE + 0x0F))) {
         return FBUS_DETECTED_SENSOR_FAS_150S;
     }
 
@@ -501,6 +503,13 @@ bool fbusSensorProcessData(uint8_t physicalId, uint16_t appId, uint32_t data)
             return true;
         }
 
+        if (appId >= FBUS_TEMPERATURE1_BASE && appId <= (FBUS_TEMPERATURE1_BASE + 0x0F)) {
+            fbusCurrent.temperature1DegC = (int16_t)data;
+            fbusCurrent.hasTemperature1 = true;
+            fbusCurrent.lastUpdateUs = currentTimeUs;
+            return true;
+        }
+
         return false;
     }
 
@@ -589,6 +598,7 @@ void fbusSensorUpdate(timeUs_t currentTimeUs)
         fbusCurrent.hasCurrent = false;
         fbusCurrent.hasVoltage = false;
         fbusCurrent.hasHighPrecisionCurrent = false;
+        fbusCurrent.hasTemperature1 = false;
     }
 
     if (fbusEsc.lastUpdateUs > 0 && (currentTimeUs - fbusEsc.lastUpdateUs) > 1000000) {
@@ -694,7 +704,7 @@ bool fbusSensorHasCurrentData(void)
 {
     timeUs_t currentTimeUs = micros();
 
-    if ((fbusCurrent.hasCurrent || fbusCurrent.hasVoltage || fbusCurrent.hasHighPrecisionCurrent)
+    if ((fbusCurrent.hasCurrent || fbusCurrent.hasVoltage || fbusCurrent.hasHighPrecisionCurrent || fbusCurrent.hasTemperature1)
         && fbusCurrent.lastUpdateUs > 0) {
         if ((currentTimeUs - fbusCurrent.lastUpdateUs) < 1000000) {
             return true;
@@ -702,6 +712,82 @@ bool fbusSensorHasCurrentData(void)
     }
 
     return false;
+}
+
+bool fbusSensorGetDataByAppId(uint16_t appId, uint32_t *data)
+{
+    const timeUs_t currentTimeUs = micros();
+    uint32_t cachedData = 0;
+    timeUs_t lastUpdateUs = 0;
+    bool found = false;
+
+    ATOMIC_BLOCK(NVIC_PRIO_MAX) {
+        for (uint8_t offset = 0; offset < FBUS_SENSOR_CACHE_SIZE; offset++) {
+            const uint8_t index = (uint8_t)((sensorCacheIndex + FBUS_SENSOR_CACHE_SIZE - 1 - offset) % FBUS_SENSOR_CACHE_SIZE);
+            if (sensorCache[index].valid && sensorCache[index].appId == appId) {
+                cachedData = sensorCache[index].data;
+                lastUpdateUs = sensorCache[index].lastUpdateUs;
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found || lastUpdateUs == 0 || (currentTimeUs - lastUpdateUs) >= 1000000) {
+        return false;
+    }
+
+    if (data) {
+        *data = cachedData;
+    }
+
+    return true;
+}
+
+bool fbusAppIdDecodeTemperature(uint16_t appId, uint32_t rawData, int *temperatureDegC)
+{
+    if ((appId >= FBUS_TEMPERATURE1_BASE && appId <= (FBUS_TEMPERATURE1_BASE + 0x0F)) ||
+        (appId >= FBUS_TEMPERATURE2_BASE && appId <= (FBUS_TEMPERATURE2_BASE + 0x0F))) {
+        if (temperatureDegC) {
+            *temperatureDegC = (int32_t)rawData;
+        }
+        return true;
+    }
+
+    if ((appId >= 0x0D00 && appId <= 0x0D0F) ||
+        (appId >= 0x0D10 && appId <= 0x0D1F)) {
+        if (temperatureDegC) {
+            *temperatureDegC = (int16_t)(rawData & 0xFFFF);
+        }
+        return true;
+    }
+
+    if (appId >= FBUS_ESC_TEMP_BASE && appId <= (FBUS_ESC_TEMP_BASE + 0x0F)) {
+        if (temperatureDegC) {
+            *temperatureDegC = (int)(rawData & 0xFF);
+        }
+        return true;
+    }
+
+    if (appId >= FBUS_SERVO_DATA_BASE && appId <= (FBUS_SERVO_DATA_BASE + 0x0F)) {
+        if (temperatureDegC) {
+            *temperatureDegC = (int)((rawData >> 16) & 0xFF);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool fbusSensorGetTemperatureByAppId(uint16_t appId, int *temperatureDegC)
+{
+    uint32_t rawData = 0;
+
+    if (!fbusSensorGetDataByAppId(appId, &rawData)) {
+        return false;
+    }
+
+    return fbusAppIdDecodeTemperature(appId, rawData, temperatureDegC);
 }
 
 bool fbusSensorGetBatteryVoltageCentiVolts(uint32_t *voltageCentiVolts)

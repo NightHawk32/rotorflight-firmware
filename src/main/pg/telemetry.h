@@ -35,6 +35,12 @@ enum {
 
 #define TELEM_SENSOR_SLOT_COUNT 40
 
+enum {
+    EXTERNAL_MOTOR_TEMP_SOURCE_NONE = 0,
+    EXTERNAL_MOTOR_TEMP_SOURCE_FBUS,
+    EXTERNAL_MOTOR_TEMP_SOURCE_ADC,
+};
+
 typedef struct telemetryConfig_s {
     int16_t gpsNoFixLatitude;
     int16_t gpsNoFixLongitude;
@@ -51,6 +57,12 @@ typedef struct telemetryConfig_s {
     uint8_t crsf_telemetry_mode;
     uint16_t crsf_telemetry_link_rate;
     uint16_t crsf_telemetry_link_ratio;
+    uint8_t externalMotorTempSource;
+    uint16_t externalMotorTempFbusAppId;
+    uint16_t externalMotorTempAdcMin;
+    uint16_t externalMotorTempAdcMax;
+    uint16_t externalMotorTempMin;
+    uint16_t externalMotorTempMax;
     uint16_t telemetry_sensors[TELEM_SENSOR_SLOT_COUNT];
     uint16_t telemetry_interval[TELEM_SENSOR_SLOT_COUNT];
 } telemetryConfig_t;

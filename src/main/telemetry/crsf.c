@@ -428,7 +428,7 @@ static void crsfFrameTemp(sbuf_t *dst)
     sbufWriteU8(dst, CRSF_FRAMETYPE_TEMP);
     sbufWriteU8(dst, 0);
     sbufWriteS16BE(dst, telemetrySensorValue(TELEM_MCU_TEMP) * 10);
-    sbufWriteS16BE(dst, telemetrySensorValue(TELEM_ESC_TEMP));
+    sbufWriteS16BE(dst, telemetrySensorActive(TELEM_MOTOR_TEMP) ? telemetrySensorValue(TELEM_MOTOR_TEMP) * 10 : telemetrySensorValue(TELEM_ESC_TEMP));
 }
 
 /*
@@ -777,6 +777,7 @@ static telemetrySensor_t crsfCustomTelemetrySensors[] =
 
     TLM_SENSOR(ESC_TEMP,                0x10A0,   500,  3000,    10,    U8),
     TLM_SENSOR(BEC_TEMP,                0x10A1,   500,  3000,    10,    U8),
+    TLM_SENSOR(MOTOR_TEMP,              0x10A2,   500,  3000,    0,     U8),
     TLM_SENSOR(MCU_TEMP,                0x10A3,   500,  3000,    0,     U8),
 
     TLM_SENSOR(HEADING,                 0x10B1,   200,  3000,    0,     S16),

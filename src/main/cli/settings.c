@@ -500,6 +500,10 @@ const char * const lookupTableTelemMode[] = {
     "NATIVE", "CUSTOM",
 };
 
+const char * const lookupTableExternalMotorTempSource[] = {
+    "NONE", "FBUS", "ADC"
+};
+
 const char * const lookupTablePullMode[] = {
     "NOPULL", "PULLUP", "PULLDOWN"
 };
@@ -623,6 +627,7 @@ const lookupTableEntry_t lookupTables[] = {
     LOOKUP_TABLE_ENTRY(lookupTableRescueMode),
     LOOKUP_TABLE_ENTRY(lookupTableSwashType),
     LOOKUP_TABLE_ENTRY(lookupTableTelemMode),
+    LOOKUP_TABLE_ENTRY(lookupTableExternalMotorTempSource),
     LOOKUP_TABLE_ENTRY(lookupTablePullMode),
     LOOKUP_TABLE_ENTRY(lookupTableEdgeMode),
     LOOKUP_TABLE_ENTRY(lookupTableParamType),
@@ -1238,6 +1243,12 @@ const clivalue_t valueTable[] = {
     { "crsf_telemetry_mode",         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_TELEM_MODE }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_telemetry_mode) },
     { "crsf_telemetry_link_rate",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_telemetry_link_rate) },
     { "crsf_telemetry_link_ratio",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_telemetry_link_ratio) },
+    { "external_motor_temp_source",  VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_EXTERNAL_MOTOR_TEMP_SOURCE }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempSource) },
+    { "external_motor_temp_fbus_app_id", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 65535 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempFbusAppId) },
+    { "external_motor_temp_adc_min", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 4095 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempAdcMin) },
+    { "external_motor_temp_adc_max", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 4095 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempAdcMax) },
+    { "external_motor_temp_min",     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 300 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempMin) },
+    { "external_motor_temp_max",     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 300 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempMax) },
 
     { "telemetry_sensors",      VAR_UINT16 | MASTER_VALUE | MODE_ARRAY, .config.array.length = TELEM_SENSOR_SLOT_COUNT, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, telemetry_sensors)},
     { "telemetry_interval",     VAR_UINT16 | MASTER_VALUE | MODE_ARRAY, .config.array.length = TELEM_SENSOR_SLOT_COUNT, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, telemetry_interval)},
