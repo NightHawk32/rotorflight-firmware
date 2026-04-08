@@ -99,6 +99,7 @@ bool cliMode = false;
 #include "drivers/vtx_table.h"
 #include "drivers/freq.h"
 #include "drivers/fbus_sensor.h"
+#include "drivers/external_temperature.h"
 
 #include "fc/board_info.h"
 #include "fc/rc_rates.h"
@@ -4898,6 +4899,21 @@ static const char *getMcuTypeById(mcuTypeId_e id)
     }
 }
 
+static void cliExternalTemp(const char *cmdName, char *cmdline)
+{
+    UNUSED(cmdName);
+    UNUSED(cmdline);
+
+    externalTemperatureState_t state;
+    memset(&state, 0, sizeof(state));
+
+    if (externalTemperatureGet(&state)) {
+        cliPrintLinef("%d", state.temperature);
+    } else {
+        cliPrintLine("0");
+    }
+}
+
 static void cliStatus(const char *cmdName, char *cmdline)
 {
     UNUSED(cmdName);
@@ -5361,6 +5377,7 @@ const cliResourceValue_t resourceTable[] = {
     DEFS( OWNER_ADC_BEC,       PG_ADC_CONFIG, adcConfig_t, vbec.ioTag ),
     DEFS( OWNER_ADC_BUS,       PG_ADC_CONFIG, adcConfig_t, vbus.ioTag ),
     DEFS( OWNER_ADC_EXT,       PG_ADC_CONFIG, adcConfig_t, vext.ioTag ),
+    DEFS( OWNER_ADC_TEMP,      PG_ADC_CONFIG, adcConfig_t, temp.ioTag ),
 #endif
 #ifdef USE_BARO
     DEFS( OWNER_BARO_CS,       PG_BAROMETER_CONFIG, barometerConfig_t, baro_spi_csn ),
@@ -6740,6 +6757,7 @@ const clicmd_t cmdTable[] = {
 #ifdef USE_DSHOT
     CLI_COMMAND_DEF("dshotprog", "program DShot ESC(s)", "<index> <command>+", cliDshotProg),
 #endif
+    CLI_COMMAND_DEF("external_temp", "show external ADC temperature sensor value", NULL, cliExternalTemp),
     CLI_COMMAND_DEF("dump", "dump configuration",
         "[master|profile|rates|hardware|all] {defaults|bare}", cliDump),
 #ifdef USE_ESCSERIAL

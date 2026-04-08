@@ -204,6 +204,7 @@ static telemetrySensor_t smartportTelemetrySensors[] =
     TLM_SENSOR(MCU_TEMP,                0x0400,   200,  3000,   1,   2,   0,    INT),
     TLM_SENSOR(ESC_TEMP,                0x0401,   200,  3000,   1,   2,   10,   INT),
     TLM_SENSOR(BEC_TEMP,                0x0402,   200,  3000,   1,   2,   10,   INT),
+    TLM_SENSOR(MOTOR_TEMP,              0x0403,   200,  3000,   1,   2,   0,    INT),
 
     TLM_SENSOR(HEADING,                 0x5210,   100,  3000,   1,  10,   0,    INT),
     TLM_SENSOR(ALTITUDE,                0x0100,   100,  3000,   1,  10,   0,    INT),

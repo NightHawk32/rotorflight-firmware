@@ -29,6 +29,8 @@
 #include "build/build_config.h"
 #include "build/debug.h"
 
+#include <math.h>
+
 #include "drivers/adc_impl.h"
 #include "drivers/io.h"
 

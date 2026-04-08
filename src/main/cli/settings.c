@@ -105,6 +105,7 @@
 #include "pg/rcdevice.h"
 #include "pg/stats.h"
 #include "pg/board.h"
+#include "pg/external_temperature.h"
 #include "pg/freq.h"
 #include "pg/sbus_output.h"
 #include "pg/fbus_master.h"
@@ -217,6 +218,10 @@ static const char * const lookupTableBlackboxMode[] = {
     "OFF", "NORMAL", "ARMED", "SWITCH"
 };
 #endif
+
+static const char * const lookupTableExternalTemperatureNtcType[] = {
+    "10K", "100K"
+};
 
 #ifdef USE_SERIAL_RX
 static const char * const lookupTableSerialRX[] = {
@@ -628,6 +633,7 @@ const lookupTableEntry_t lookupTables[] = {
     LOOKUP_TABLE_ENTRY(lookupTableSwashType),
     LOOKUP_TABLE_ENTRY(lookupTableTelemMode),
     LOOKUP_TABLE_ENTRY(lookupTableExternalMotorTempSource),
+    LOOKUP_TABLE_ENTRY(lookupTableExternalTemperatureNtcType),
     LOOKUP_TABLE_ENTRY(lookupTablePullMode),
     LOOKUP_TABLE_ENTRY(lookupTableEdgeMode),
     LOOKUP_TABLE_ENTRY(lookupTableParamType),
@@ -1243,17 +1249,17 @@ const clivalue_t valueTable[] = {
     { "crsf_telemetry_mode",         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_TELEM_MODE }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_telemetry_mode) },
     { "crsf_telemetry_link_rate",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_telemetry_link_rate) },
     { "crsf_telemetry_link_ratio",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50000 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, crsf_telemetry_link_ratio) },
-    { "external_motor_temp_source",  VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_EXTERNAL_MOTOR_TEMP_SOURCE }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempSource) },
-    { "external_motor_temp_fbus_app_id", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 65535 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempFbusAppId) },
-    { "external_motor_temp_adc_min", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 4095 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempAdcMin) },
-    { "external_motor_temp_adc_max", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 4095 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempAdcMax) },
-    { "external_motor_temp_min",     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 300 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempMin) },
-    { "external_motor_temp_max",     VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 300 }, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, externalMotorTempMax) },
 
     { "telemetry_sensors",      VAR_UINT16 | MASTER_VALUE | MODE_ARRAY, .config.array.length = TELEM_SENSOR_SLOT_COUNT, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, telemetry_sensors)},
     { "telemetry_interval",     VAR_UINT16 | MASTER_VALUE | MODE_ARRAY, .config.array.length = TELEM_SENSOR_SLOT_COUNT, PG_TELEMETRY_CONFIG, offsetof(telemetryConfig_t, telemetry_interval)},
 
 #endif // USE_TELEMETRY
+
+    { "external_motor_temp_source",      VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_EXTERNAL_MOTOR_TEMP_SOURCE }, PG_EXTERNAL_TEMPERATURE_CONFIG, offsetof(externalTemperatureConfig_t, source) },
+    { "external_motor_temp_fbus_app_id", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 65535 }, PG_EXTERNAL_TEMPERATURE_CONFIG, offsetof(externalTemperatureConfig_t, fbusAppId) },
+    { "external_motor_temp_adc_ntc_type", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_EXTERNAL_TEMPERATURE_NTC_TYPE }, PG_EXTERNAL_TEMPERATURE_CONFIG, offsetof(externalTemperatureConfig_t, adcNtcType) },
+    { "external_motor_temp_adc_resistor", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, UINT16_MAX }, PG_EXTERNAL_TEMPERATURE_CONFIG, offsetof(externalTemperatureConfig_t, adcResistor) },
+    { "external_motor_temp_adc_beta",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1000, 5000 }, PG_EXTERNAL_TEMPERATURE_CONFIG, offsetof(externalTemperatureConfig_t, adcBeta) },
 
 // PG_LED_STRIP_CONFIG
 #ifdef USE_LED_STRIP

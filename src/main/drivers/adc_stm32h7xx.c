@@ -308,6 +308,10 @@ void adcInit(const adcConfig_t *config)
         adcOperatingConfig[ADC_VEXT].tag = config->vext.ioTag;
         adcOperatingConfig[ADC_VEXT].adcDevice = config->vext.device;
     }
+    if (config->temp.enabled || config->temp.ioTag) {
+        adcOperatingConfig[ADC_TEMP].tag = config->temp.ioTag;
+        adcOperatingConfig[ADC_TEMP].adcDevice = config->temp.device;
+    }
 
 #ifdef USE_ADC_INTERNAL
     adcInitCalibrationValues();

@@ -35,7 +35,7 @@
 #include "pg/adc.h"
 
 
-PG_REGISTER_WITH_RESET_FN(adcConfig_t, adcConfig, PG_ADC_CONFIG, 0);
+PG_REGISTER_WITH_RESET_FN(adcConfig_t, adcConfig, PG_ADC_CONFIG, 1);
 
 void pgResetFn_adcConfig(adcConfig_t *adcConfig)
 {
@@ -75,6 +75,18 @@ void pgResetFn_adcConfig(adcConfig_t *adcConfig)
     adcConfig->vext.device = ADC_DEV_TO_CFG(adcDeviceByInstance(EXTERNAL1_ADC_INSTANCE));
 #else
     adcConfig->vext.device = adcConfig->device;
+#endif
+#endif
+#endif
+
+#ifdef TEMP_SENSOR_ADC_PIN
+    adcConfig->temp.enabled = true;
+    adcConfig->temp.ioTag = IO_TAG(TEMP_SENSOR_ADC_PIN);
+#if defined(STM32H7)
+#ifdef TEMP_SENSOR_ADC_INSTANCE
+    adcConfig->temp.device = ADC_DEV_TO_CFG(adcDeviceByInstance(TEMP_SENSOR_ADC_INSTANCE));
+#else
+    adcConfig->temp.device = adcConfig->device;
 #endif
 #endif
 #endif

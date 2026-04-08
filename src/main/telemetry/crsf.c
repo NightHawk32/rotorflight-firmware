@@ -1349,7 +1349,12 @@ static void INIT_CODE crsfInitNativeTelemetry(void)
         telemetrySensor_t * sensor = &crsfNativeTelemetrySensors[i];
         if (telemetrySensorActive(sensor->sensor_id)) {
             for (size_t j = 0; j < TELEM_SENSOR_SLOT_COUNT; j++) {
-                if (telemetryConfig()->telemetry_sensors[j] == sensor->sensor_id) {
+                sensor_id_e configured = telemetryConfig()->telemetry_sensors[j];
+                // TELEM_MOTOR_TEMP in the sensor list also enables the TELEM_TEMP native frame
+                bool match = (configured == sensor->sensor_id) ||
+                             (sensor->sensor_id == TELEM_TEMP && configured == TELEM_MOTOR_TEMP &&
+                              telemetrySensorActive(TELEM_MOTOR_TEMP));
+                if (match) {
                     if (telemetryConfig()->telemetry_interval[j]) {
                         sensor->fast_interval = sensor->slow_interval = telemetryConfig()->telemetry_interval[j];
                     }

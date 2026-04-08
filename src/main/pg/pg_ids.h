@@ -164,8 +164,9 @@
 #define PG_DRIVER_SBUS_OUT_CONFIG    1005
 #define PG_DRIVER_FBUS_MASTER_CONFIG 1006
 #define PG_BUS_SERVO_CONFIG          1007
-
-// OSD configuration (subject to change)
+#define PG_EXTERNAL_TEMPERATURE_CONFIG 1008
+ 
+ // OSD configuration (subject to change)
 #define PG_OSD_FONT_CONFIG 2047
 #define PG_OSD_VIDEO_CONFIG 2046
 #define PG_OSD_ELEMENT_CONFIG 2045

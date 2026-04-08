@@ -279,6 +279,9 @@ void adcInit(const adcConfig_t *config)
     if (config->vext.enabled) {
         adcOperatingConfig[ADC_VEXT].tag = config->vext.ioTag;
     }
+    if (config->temp.enabled || config->temp.ioTag) {
+        adcOperatingConfig[ADC_TEMP].tag = config->temp.ioTag;
+    }
 
 #ifdef USE_ADC_INTERNAL
     adcInitCalibrationValues();

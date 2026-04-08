@@ -24,8 +24,6 @@
 
 #include "common/unit.h"
 
-#include "drivers/fbus_sensor.h"
-
 #include "common/maths.h"
 
 #include "pg/pg_ids.h"
@@ -53,22 +51,8 @@ void pgResetFn_telemetryConfig(telemetryConfig_t *telemetryConfig)
     telemetryConfig->crsf_telemetry_mode = CRSF_TELEMETRY_MODE_NATIVE;
     telemetryConfig->crsf_telemetry_link_rate = 250;
     telemetryConfig->crsf_telemetry_link_ratio = 8;
-    telemetryConfig->externalMotorTempSource = EXTERNAL_MOTOR_TEMP_SOURCE_NONE;
-    telemetryConfig->externalMotorTempFbusAppId = FBUS_TEMPERATURE1_BASE;
-    telemetryConfig->externalMotorTempAdcMin = 0;
-    telemetryConfig->externalMotorTempAdcMax = 4095;
-    telemetryConfig->externalMotorTempMin = 0;
-    telemetryConfig->externalMotorTempMax = 150;
     memset(telemetryConfig->telemetry_sensors, 0, sizeof(telemetryConfig->telemetry_sensors));
     memset(telemetryConfig->telemetry_interval, 0, sizeof(telemetryConfig->telemetry_interval));
-
-    if (telemetryConfig->externalMotorTempAdcMax <= telemetryConfig->externalMotorTempAdcMin) {
-        telemetryConfig->externalMotorTempAdcMax = telemetryConfig->externalMotorTempAdcMin + 1;
-    }
-
-    if (telemetryConfig->externalMotorTempMax <= telemetryConfig->externalMotorTempMin) {
-        telemetryConfig->externalMotorTempMax = telemetryConfig->externalMotorTempMin + 1;
-    }
 }
 
 void pgResetTemplate_telemetryConfig(telemetryConfig_t *telemetryConfig)

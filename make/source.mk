@@ -30,6 +30,7 @@ COMMON_SRC = \
             drivers/dma_common.c \
             drivers/dma_reqmap.c \
             drivers/exti.c \
+            drivers/external_temperature.c \
             drivers/io.c \
             drivers/light_led.c \
             drivers/mco.c \
