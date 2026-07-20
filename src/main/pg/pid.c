@@ -126,6 +126,19 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .governor.collective_curve = 20,
         .governor.fallback_drop = 10,
         .governor.dyn_min_throttle = 80,
+        // Altitude hold defaults
+        .althold.alt_p_gain = 20,       // Kp_alt = 2.0 (×10 scale)
+        .althold.alt_i_gain = 5,        // Ki_vel small integral
+        .althold.alt_d_gain = 15,       // Kd applied to vario
+        .althold.max_climb_rate = 200,  // 200 cm/s max climb/descent
+        .althold.stick_deadband = 100,  // 10% deadband on collective stick
+        .althold.hover_collective = 350, // feed-forward hover collective
+        // Position hold defaults
+        .poshold.pos_p_gain = 50,       // position → velocity (0.5 m/s per m error)
+        .poshold.vel_p_gain = 30,       // velocity → angle  (0.3 deg per cm/s error)
+        .poshold.max_horiz_speed = 200, // 200 cm/s
+        .poshold.max_tilt_angle = 150,  // 15.0 degrees
+        .poshold.stick_deadband = 100,  // 10% deadband on roll/pitch stick
     );
 }
 

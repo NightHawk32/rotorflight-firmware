@@ -102,6 +102,23 @@ typedef struct {
 
 #define MAX_PROFILE_NAME_LENGTH 8u
 
+typedef struct {
+    uint16_t    alt_p_gain;         // P gain (×10 → divide by 10 for float Kp)
+    uint16_t    alt_i_gain;         // I gain
+    uint16_t    alt_d_gain;         // D gain (applied to vario)
+    uint16_t    max_climb_rate;     // Max climb/descent rate cm/s (e.g., 200)
+    uint16_t    stick_deadband;     // Collective stick deadband 0-500 (out of 1000)
+    uint16_t    hover_collective;   // Feed-forward hover collective (0-1000)
+} pidAltHoldConfig_t;
+
+typedef struct {
+    uint16_t    pos_p_gain;         // Position → velocity P gain
+    uint16_t    vel_p_gain;         // Velocity → angle P gain
+    uint16_t    max_horiz_speed;    // Max horizontal speed cm/s (e.g., 200)
+    uint16_t    max_tilt_angle;     // Max tilt angle in degrees×10 (e.g., 150 = 15°)
+    uint16_t    stick_deadband;     // Roll/Pitch stick deadband 0-500
+} pidPosHoldConfig_t;
+
 typedef struct pidProfile_s {
 
     char                profileName[MAX_PROFILE_NAME_LENGTH + 1];
@@ -151,6 +168,8 @@ typedef struct pidProfile_s {
     pidHorizonMode_t    horizon;
     pidTrainerMode_t    trainer;
     pidRescueConfig_t   rescue;
+    pidAltHoldConfig_t  althold;
+    pidPosHoldConfig_t  poshold;
     governorProfile_t   governor;
 
 } pidProfile_t;

@@ -17,25 +17,13 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
+#include "platform.h"
 
-enum {
-    ALT_SOURCE_DEFAULT = 0,
-    ALT_SOURCE_BARO_ONLY,
-    ALT_SOURCE_GPS_ONLY,
-    ALT_SOURCE_LIDAR_ONLY,
-};
+#include "flight/pid.h"
 
-typedef struct positionConfig_s {
-    uint8_t alt_source;
-    uint8_t baro_alt_lpf;
-    uint8_t baro_offset_lpf;
-    uint8_t gps_alt_lpf;
-    uint8_t gps_offset_lpf;
-    uint8_t gps_min_sats;
-    uint8_t vario_lpf;
-} positionConfig_t;
+// Angle correction in centidegrees, added to target angle in leveling.c
+// (same convention as gpsRescueAngle[])
+extern int32_t posHoldAngle[2]; // [AI_ROLL, AI_PITCH]
 
-PG_DECLARE(positionConfig_t, positionConfig);
-
+void posHoldUpdate(void);
+void posHoldInitProfile(const pidProfile_t *pidProfile);

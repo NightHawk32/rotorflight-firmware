@@ -64,7 +64,7 @@ static bool opticalFlowDetect(opticalFlowDev_t * dev, uint8_t opticalFlowHardwar
         case OPTICAL_FLOW_MICROLINK:
             if (opticalFlowMicrolinkDetect(dev)) {
                 opticalFlowHardware = OPTICAL_FLOW_MICROLINK;
-                rescheduleTask(TASK_OPTICAL_FLOW, TASK_PERIOD_MS(10)); // 100Hz
+                rescheduleTask(TASK_OPTICAL_FLOW, TASK_PERIOD_MS(20)); // 50Hz
             }
             break;
 

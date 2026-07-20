@@ -27,6 +27,9 @@
 
 #include "common/maths.h"
 #include "common/filter.h"
+#include "common/time.h"
+
+#include "drivers/time.h"
 
 #include "fc/runtime_config.h"
 
@@ -39,9 +42,26 @@
 #include "sensors/sensors.h"
 #include "sensors/barometer.h"
 
+#ifdef USE_RANGEFINDER
+#include "sensors/rangefinder.h"
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+#include "sensors/optical_flow.h"
+#endif
+
 #include "flight/imu.h"
 #include "flight/pid.h"
 #include "flight/position.h"
+
+// Rangefinder reliability decay constant (time constant ~400ms at 50Hz)
+#define AGL_RELIABILITY_INCREMENT   0.05f
+#define AGL_RELIABILITY_DECREMENT   0.10f
+#define AGL_RELIABILITY_THRESHOLD   0.33f
+// Optical flow quality threshold (0-255)
+#define FLOW_QUALITY_THRESHOLD      50
+// Maximum dead-reckoning radius before position resets (cm)
+#define POSXY_MAX_DEADRECKONING_CM  1000.0f
 
 
 typedef struct {
@@ -72,6 +92,30 @@ typedef struct {
 
 static FAST_DATA altState_t alt;
 
+#ifdef USE_RANGEFINDER
+typedef struct {
+    float       aglAlt;         // AGL altitude in meters
+    float       aglVario;       // AGL vertical velocity in m/s
+    float       reliability;    // 0.0 = invalid, 1.0 = perfect
+    difFilter_t varioFilter;
+} aglState_t;
+
+static FAST_DATA aglState_t agl;
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+typedef struct {
+    float       posX;           // Dead-reckoning position East  (cm, relative to arm point)
+    float       posY;           // Dead-reckoning position North (cm, relative to arm point)
+    float       velX;           // Earth-frame velocity East  (cm/s)
+    float       velY;           // Earth-frame velocity North (cm/s)
+    bool        valid;
+    timeMs_t    lastUpdateMs;
+} posXYState_t;
+
+static FAST_DATA posXYState_t posxy;
+#endif
+
 
 float getAltitude(void)
 {
@@ -92,6 +136,56 @@ int getEstimatedVarioCms(void)
 {
     return lrintf(alt.variometer * 100);
 }
+
+#ifdef USE_RANGEFINDER
+float getAGLAltitude(void)
+{
+    return agl.aglAlt;
+}
+
+float getAGLVario(void)
+{
+    return agl.aglVario;
+}
+
+bool isAGLAltitudeValid(void)
+{
+    return (agl.reliability >= AGL_RELIABILITY_THRESHOLD) &&
+           rangefinderIsHealthy();
+}
+
+float getAGLReliability(void)
+{
+    return agl.reliability;
+}
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+float getPositionXCm(void)
+{
+    return posxy.posX;
+}
+
+float getPositionYCm(void)
+{
+    return posxy.posY;
+}
+
+float getVelocityXCms(void)
+{
+    return posxy.velX;
+}
+
+float getVelocityYCms(void)
+{
+    return posxy.velY;
+}
+
+bool isPositionXYValid(void)
+{
+    return posxy.valid;
+}
+#endif
 
 
 static float calculateVario(float altitude)
@@ -163,6 +257,93 @@ void positionUpdate(void)
     DEBUG(ALTITUDE, 5, alt.gpsAltOffset * 100);
     DEBUG(ALTITUDE, 6, gpsSol.llh.altCm);
     DEBUG(ALTITUDE, 7, gpsSol.numSat);
+
+#ifdef USE_RANGEFINDER
+    // --- AGL altitude estimation from rangefinder ---
+    if (sensors(SENSOR_RANGEFINDER)) {
+        const int32_t rawAlt = rangefinderGetLatestAltitude(); // tilt-compensated cm
+
+        if (rawAlt > 0) {
+            // Valid reading: update AGL estimate and increase reliability
+            const float newAgl = rawAlt / 100.0f; // convert cm to m
+            agl.aglVario = difFilterApply(&agl.varioFilter, newAgl);
+            agl.aglAlt = newAgl;
+            agl.reliability = MIN(1.0f, agl.reliability + AGL_RELIABILITY_INCREMENT);
+        } else {
+            // No valid reading: decay reliability
+            agl.reliability = MAX(0.0f, agl.reliability - AGL_RELIABILITY_DECREMENT);
+        }
+    } else {
+        agl.reliability = 0.0f;
+    }
+
+    DEBUG(ALTHOLD, 0, agl.aglAlt * 100);
+    DEBUG(ALTHOLD, 1, agl.aglVario * 100);
+    DEBUG(ALTHOLD, 2, (int32_t)(agl.reliability * 1000));
+    DEBUG(ALTHOLD, 3, rangefinderGetLatestAltitude());
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+    // --- Optical flow XY position estimation ---
+    if (sensors(SENSOR_OPTICAL_FLOW) && opticalFlowIsHealthy()) {
+        const uint8_t quality = opticalFlowGetLatestQuality();
+        const timeMs_t now = millis();
+
+        if (quality >= FLOW_QUALITY_THRESHOLD && isAGLAltitudeValid()) {
+            const float dt = (posxy.lastUpdateMs > 0) ?
+                             (now - posxy.lastUpdateMs) / 1000.0f : 0.0f;
+
+            if (dt > 0.0f && dt < 0.1f) {
+                // Optical flow gives velocity in cm/s already scaled by distance
+                // (driver already applied: flowX = flow_vel_x * distance_mm / 1000)
+                const float flowBodyX = opticalFlowGetLatestX();
+                const float flowBodyY = opticalFlowGetLatestY();
+
+                // Transform body-frame velocity to earth frame using rotation matrix
+                // rMat[0][0..1] = north components of body X/Y
+                // rMat[1][0..1] = east  components of body X/Y
+                const float velEast  =  rMat[1][0] * flowBodyX + rMat[1][1] * flowBodyY;
+                const float velNorth =  rMat[0][0] * flowBodyX + rMat[0][1] * flowBodyY;
+
+                posxy.velX = velEast;
+                posxy.velY = velNorth;
+
+                // Integrate to dead-reckoning position
+                posxy.posX += velEast  * dt;
+                posxy.posY += velNorth * dt;
+
+                // Clamp to prevent unbounded drift
+                const float dist = sqrtf(posxy.posX * posxy.posX + posxy.posY * posxy.posY);
+                if (dist > POSXY_MAX_DEADRECKONING_CM) {
+                    const float scale = POSXY_MAX_DEADRECKONING_CM / dist;
+                    posxy.posX *= scale;
+                    posxy.posY *= scale;
+                }
+
+                posxy.valid = true;
+            }
+
+            posxy.lastUpdateMs = now;
+        } else {
+            posxy.velX = 0;
+            posxy.velY = 0;
+            if ((now - posxy.lastUpdateMs) > 500) {
+                posxy.valid = false;
+            }
+        }
+    } else {
+        posxy.velX = 0;
+        posxy.velY = 0;
+        posxy.valid = false;
+    }
+
+    DEBUG(POSHOLD, 0, (int32_t)posxy.posX);
+    DEBUG(POSHOLD, 1, (int32_t)posxy.posY);
+    DEBUG(POSHOLD, 2, (int32_t)posxy.velX);
+    DEBUG(POSHOLD, 3, (int32_t)posxy.velY);
+    DEBUG(POSHOLD, 4, posxy.valid ? 1 : 0);
+    DEBUG(POSHOLD, 5, opticalFlowGetLatestQuality());
+#endif
 }
 
 void INIT_CODE positionInit(void)
@@ -176,4 +357,20 @@ void INIT_CODE positionInit(void)
 
     lowpassFilterInit(&alt.gpsOffsetFilter, LPF_PT2, positionConfig()->gps_offset_lpf / 1000.0f, pidGetPidFrequency(), LPF_EWMA);
     lowpassFilterInit(&alt.baroOffsetFilter, LPF_PT2, positionConfig()->baro_offset_lpf / 1000.0f, pidGetPidFrequency(), LPF_EWMA);
+
+#ifdef USE_RANGEFINDER
+    difFilterInit(&agl.varioFilter, 1.0f, pidGetPidFrequency());
+    agl.reliability = 0.0f;
+    agl.aglAlt = 0.0f;
+    agl.aglVario = 0.0f;
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+    posxy.posX = 0;
+    posxy.posY = 0;
+    posxy.velX = 0;
+    posxy.velY = 0;
+    posxy.valid = false;
+    posxy.lastUpdateMs = 0;
+#endif
 }
