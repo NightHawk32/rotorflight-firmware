@@ -114,7 +114,7 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
 #if defined(USE_OPTICAL_FLOW)
             if (rangefinderMicrolinkDetect(dev)) {
                 rangefinderHardware = RANGEFINDER_MICROLINK;
-                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(10)); // 100Hz
+                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(20)); // 50Hz
             }
 #endif
             break;

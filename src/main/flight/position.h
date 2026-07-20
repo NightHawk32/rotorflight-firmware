@@ -25,3 +25,20 @@ float getVario(void);
 
 int getEstimatedAltitudeCm(void);
 int getEstimatedVarioCms(void);
+
+// AGL altitude from rangefinder (meters)
+#ifdef USE_RANGEFINDER
+float getAGLAltitude(void);
+float getAGLVario(void);
+bool  isAGLAltitudeValid(void);
+float getAGLReliability(void);
+#endif
+
+// Optical-flow dead-reckoning position (cm) and velocity (cm/s)
+#ifdef USE_OPTICAL_FLOW
+float getPositionXCm(void);
+float getPositionYCm(void);
+float getVelocityXCms(void);
+float getVelocityYCms(void);
+bool  isPositionXYValid(void);
+#endif
