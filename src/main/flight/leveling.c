@@ -47,6 +47,9 @@
 #include "flight/imu.h"
 #include "flight/gps_rescue.h"
 #include "flight/airborne.h"
+#ifdef USE_OPTICAL_FLOW
+#include "flight/poshold.h"
+#endif
 
 #include "sensors/acceleration.h"
 #include "sensors/gyro.h"
@@ -147,6 +150,11 @@ static float calcLevelErrorAngle(int axis, float angleLimit)
 
 #ifdef USE_GPS_RESCUE
     angle += gpsRescueAngle[axis] / 100.0f; // ANGLE IS IN CENTIDEGREES
+#endif
+#ifdef USE_OPTICAL_FLOW
+    if (FLIGHT_MODE(POSHOLD_MODE)) {
+        angle += posHoldAngle[axis] / 100.0f; // ANGLE IS IN CENTIDEGREES
+    }
 #endif
     angle = constrainf(angle, -angleLimit, angleLimit);
 

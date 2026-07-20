@@ -24,6 +24,7 @@ enum {
     ALT_SOURCE_DEFAULT = 0,
     ALT_SOURCE_BARO_ONLY,
     ALT_SOURCE_GPS_ONLY,
+    ALT_SOURCE_LIDAR_ONLY,
 };
 
 typedef struct positionConfig_s {
