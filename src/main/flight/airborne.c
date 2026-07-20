@@ -40,11 +40,15 @@
 #include "fc/rc.h"
 
 #include "sensors/gyro.h"
+#ifdef USE_ACC
+#include "sensors/acceleration.h"
+#endif
 
 #include "airborne.h"
 
 #define FILTER_CUTOFF                       5.0f
 #define GYRO_FILTER_CUTOFF                 10.0f
+#define ACC_Z_CUTOFF                        5.0f
 
 #define PEAK_UP_CUTOFF                     20.0f
 #define PEAK_DN_CUTOFF                      0.5f
@@ -80,6 +84,12 @@ typedef struct
     pt1Filter_t  gyroFilter[2];
     peakFilter_t peakGyroRate[2];
 
+#ifdef USE_ACC
+    pt1Filter_t accZFilter;
+    float       accZFiltered;
+    float       accZThreshold;  // in g units, e.g. 1.15f
+#endif
+
     timeMs_t    liftoffEntryTime;
 
 } airborneData_t;
@@ -104,6 +114,12 @@ INIT_CODE void airborneInit(void)
         pt1FilterInit(&airborne.gyroFilter[axis], GYRO_FILTER_CUTOFF, pidGetPidFrequency());
         peakFilterInit(&airborne.peakGyroRate[axis], PEAK_UP_CUTOFF, PEAK_DN_CUTOFF, pidGetPidFrequency());
     }
+
+#ifdef USE_ACC
+    pt1FilterInit(&airborne.accZFilter, ACC_Z_CUTOFF, pidGetPidFrequency());
+    airborne.accZFiltered  = 1.0f;
+    airborne.accZThreshold = 1.0f + rcControlsConfig()->airborne_acc_threshold * 0.01f;
+#endif
 }
 
 static bool isOverThreshold(const float *threshold)
@@ -160,10 +176,21 @@ static void updateGyroRate(void)
     }
 }
 
-// STICK_RESPONSE: liftoff when the heli demonstrably follows cyclic stick input
+#ifdef USE_ACC
+static void updateAccZ(void)
+{
+    if (sensors(SENSOR_ACC) && acc.isAccelUpdatedAtLeastOnce) {
+        airborne.accZFiltered = pt1FilterApply(&airborne.accZFilter,
+            acc.accADC[Z] * acc.dev.acc_1G_rec);
+    }
+}
+#endif
+
+// STICK_RESPONSE: liftoff when the heli demonstrably follows cyclic stick input,
+// or when Z-axis acceleration indicates the heli has left the ground.
 static bool liftoffByStickResponse(void)
 {
-    // Require stick deflection AND corresponding gyro response on the same cyclic axis
+    // Check per-axis correlation: pilot inputs stick AND heli responds with gyro rate
     bool responding = false;
     for (int axis = FD_ROLL; axis <= FD_PITCH; axis++) {
         if (peakFilterOutput(&airborne.peakDeflection[axis]) > airborne.liftoffThreshold[axis] &&
@@ -173,11 +200,20 @@ static bool liftoffByStickResponse(void)
         }
     }
 
+#ifdef USE_ACC
+    // Hands-off liftoff: upward body-frame acceleration exceeds 1g (ground reaction gone)
+    const bool liftingOff = sensors(SENSOR_ACC) &&
+                            (airborne.accZFiltered > airborne.accZThreshold);
+#else
+    const bool liftingOff = false;
+#endif
+
     return (
         ARMING_FLAG(ARMED) &&
         isSpooledUp() &&
         (
             responding ||
+            liftingOff ||
             getCosTiltAngle() < LIFTOFF_COS_ANGLE_THRESHOLD ||
             FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE)
         )
@@ -188,6 +224,9 @@ void airborneUpdate(const float rc[4])
 {
     updateStickDeflection(rc);
     updateGyroRate();
+#ifdef USE_ACC
+    updateAccZ();
+#endif
 
     const bool liftoffCondition = (airborne.mode == AIRBORNE_MODE_STICK_RESPONSE)
         ? liftoffByStickResponse()
