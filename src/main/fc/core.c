@@ -79,6 +79,10 @@
 #include "flight/governor.h"
 #include "flight/rescue.h"
 #include "flight/airborne.h"
+#include "flight/althold.h"
+#ifdef USE_OPTICAL_FLOW
+#include "flight/poshold.h"
+#endif
 
 #include "io/beeper.h"
 #include "io/gps.h"
@@ -767,6 +771,10 @@ static void subTaskSetpoint(timeUs_t currentTimeUs)
 
     setpointUpdate();
     rescueUpdate();
+    altHoldUpdate();
+#ifdef USE_OPTICAL_FLOW
+    posHoldUpdate();
+#endif
 }
 
 static void subTaskPidController(timeUs_t currentTimeUs)

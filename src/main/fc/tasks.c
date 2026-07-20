@@ -443,7 +443,7 @@ task_attribute_t task_attributes[TASK_COUNT] = {
 #endif
 
 #ifdef USE_OPTICAL_FLOW
-    [TASK_OPTICAL_FLOW] = DEFINE_TASK("OPTICAL_FLOW", NULL, NULL, taskUpdateOpticalFlow, TASK_PERIOD_HZ(100), TASK_PRIORITY_MEDIUM),
+    [TASK_OPTICAL_FLOW] = DEFINE_TASK("OPTICAL_FLOW", NULL, NULL, taskUpdateOpticalFlow, TASK_PERIOD_HZ(50), TASK_PRIORITY_MEDIUM),
 #endif
 
 #ifdef USE_CRSF_V3

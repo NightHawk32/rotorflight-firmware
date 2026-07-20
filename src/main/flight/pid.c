@@ -53,6 +53,10 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/rescue.h"
+#include "flight/althold.h"
+#ifdef USE_OPTICAL_FLOW
+#include "flight/poshold.h"
+#endif
 #include "flight/trainer.h"
 #include "flight/leveling.h"
 #include "flight/governor.h"
@@ -715,6 +719,10 @@ void INIT_CODE pidLoadProfile(const pidProfile_t *pidProfile)
     acroTrainerInit(pidProfile);
 #endif
     rescueInitProfile(pidProfile);
+    altHoldInitProfile(pidProfile);
+#ifdef USE_OPTICAL_FLOW
+    posHoldInitProfile(pidProfile);
+#endif
 }
 
 void INIT_CODE pidChangeProfile(const pidProfile_t *pidProfile)
@@ -857,8 +865,11 @@ static void pidApplyCollective(void)
 {
     float collective = getSetpoint(FD_COLL);
 
-    // Apply rescue (override)
+    // Apply rescue (override takes highest priority)
     collective = rescueApply(FD_COLL, collective);
+
+    // Apply altitude hold (lower priority than rescue)
+    collective = altHoldApply(collective);
 
     pid.collective = collective / 1000;
 }
