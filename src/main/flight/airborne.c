@@ -57,6 +57,7 @@
 #define LANDING_COS_ANGLE_THRESHOLD        0.90f
 
 #define LIFTOFF_MIN_TIME_MS                150
+#define TOUCHDOWN_MIN_AIRBORNE_MS          500
 
 typedef enum {
     AIRBORNE_MODE_CONSERVATIVE = 0,
@@ -91,6 +92,7 @@ typedef struct
 #endif
 
     timeMs_t    liftoffEntryTime;
+    timeMs_t    airborneTime;
 
 } airborneData_t;
 
@@ -240,15 +242,20 @@ void airborneUpdate(const float rc[4])
             if (liftoffCondition) {
                 if (airborne.liftoffEntryTime == 0)
                     airborne.liftoffEntryTime = millis();
-                if (cmp32(millis(), airborne.liftoffEntryTime) >= LIFTOFF_MIN_TIME_MS)
+                if (cmp32(millis(), airborne.liftoffEntryTime) >= LIFTOFF_MIN_TIME_MS) {
                     airborne.state = AIRBORNE_STATE_AIRBORNE;
+                    airborne.airborneTime = millis();
+                    pidResetAxisErrors();
+                }
             } else {
                 airborne.liftoffEntryTime = 0;
             }
             break;
         case AIRBORNE_STATE_AIRBORNE:
-            if (touchdownCondition) {
+            if (touchdownCondition &&
+                cmp32(millis(), airborne.airborneTime) >= TOUCHDOWN_MIN_AIRBORNE_MS) {
                 airborne.liftoffEntryTime = 0;
+                airborne.airborneTime = 0;
                 airborne.state = AIRBORNE_STATE_LANDED;
             }
             break;
@@ -267,6 +274,13 @@ void airborneUpdate(const float rc[4])
 bool isAirborne(void)
 {
     return (airborne.state == AIRBORNE_STATE_AIRBORNE);
+}
+
+uint32_t getLiftoffAgeMs(void)
+{
+    if (airborne.state != AIRBORNE_STATE_AIRBORNE || airborne.airborneTime == 0)
+        return 0;
+    return cmp32(millis(), airborne.airborneTime);
 }
 
 bool isHandsOn(void)
