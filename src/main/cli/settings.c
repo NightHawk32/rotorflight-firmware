@@ -421,7 +421,7 @@ const char * const lookupTableLedstripColors[COLOR_COUNT] = {
 };
 
 static const char * const lookupTablePositionAltSource[] = {
-    "DEFAULT", "BARO_ONLY", "GPS_ONLY"
+    "DEFAULT", "BARO_ONLY", "GPS_ONLY", "LIDAR_ONLY"
 };
 
 static const char * const lookupTableOffOnAuto[] = {
@@ -1218,6 +1218,21 @@ const clivalue_t valueTable[] = {
     { "rescue_max_sp_rate",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 1, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, rescue.max_setpoint_rate) },
     { "rescue_max_sp_accel",        VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 1, 10000 }, PG_PID_PROFILE, offsetof(pidProfile_t, rescue.max_setpoint_accel) },
     { "rescue_max_collective",      VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 1, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, rescue.max_collective) },
+
+    { "althold_alt_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.alt_p_gain) },
+    { "althold_alt_i_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.alt_i_gain) },
+    { "althold_alt_d_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.alt_d_gain) },
+    { "althold_max_climb_rate",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.max_climb_rate) },
+    { "althold_stick_deadband",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.stick_deadband) },
+    { "althold_hover_collective",   VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.hover_collective) },
+
+#ifdef USE_OPTICAL_FLOW
+    { "poshold_pos_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.pos_p_gain) },
+    { "poshold_vel_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.vel_p_gain) },
+    { "poshold_max_horiz_speed",    VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.max_horiz_speed) },
+    { "poshold_max_tilt_angle",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 450 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.max_tilt_angle) },
+    { "poshold_stick_deadband",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.stick_deadband) },
+#endif
 
     { "gov_use_fallback_precomp",   VAR_UINT32 | PROFILE_VALUE | MODE_BITSET, .config.bitpos = GOV_FLAG_FALLBACK_PRECOMP, PG_PID_PROFILE, offsetof(pidProfile_t, governor.flags) },
     { "gov_use_pid_spoolup",        VAR_UINT32 | PROFILE_VALUE | MODE_BITSET, .config.bitpos = GOV_FLAG_PID_SPOOLUP, PG_PID_PROFILE, offsetof(pidProfile_t, governor.flags) },

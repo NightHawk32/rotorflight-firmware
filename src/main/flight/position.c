@@ -207,6 +207,10 @@ void positionUpdate(void)
             alt.haveBaroAlt = false;
         }
     }
+    else {
+        // Source doesn't use baro (e.g. GPS_ONLY / LIDAR_ONLY): don't carry a stale reading
+        alt.haveBaroAlt = false;
+    }
 #endif
 
 #ifdef USE_GPS
@@ -218,6 +222,10 @@ void positionUpdate(void)
         else {
             alt.haveGpsAlt = false;
         }
+    }
+    else {
+        // Source doesn't use GPS (e.g. BARO_ONLY / LIDAR_ONLY): don't carry a stale reading
+        alt.haveGpsAlt = false;
     }
 #endif
 
@@ -281,6 +289,20 @@ void positionUpdate(void)
     DEBUG(ALTHOLD, 1, agl.aglVario * 100);
     DEBUG(ALTHOLD, 2, (int32_t)(agl.reliability * 1000));
     DEBUG(ALTHOLD, 3, rangefinderGetLatestAltitude());
+
+    // When configured for LIDAR_ONLY, the general altitude/vario estimate
+    // (used by OSD, blackbox, telemetry, etc.) is sourced from the rangefinder
+    // AGL estimate instead of the baro/GPS blend above.
+    if (alt.source == ALT_SOURCE_LIDAR_ONLY) {
+        if (isAGLAltitudeValid()) {
+            alt.altitude = agl.aglAlt;
+            alt.variometer = agl.aglVario;
+        }
+        else {
+            alt.altitude = 0;
+            alt.variometer = 0;
+        }
+    }
 #endif
 
 #ifdef USE_OPTICAL_FLOW

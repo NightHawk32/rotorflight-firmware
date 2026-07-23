@@ -287,6 +287,15 @@ static bool opticalFlowMicrolinkRead(opticalFlowDev_t *dev, int16_t *flowX, int1
 
 bool opticalFlowMicrolinkDetect(opticalFlowDev_t *dev)
 {
+    // Only claim the sensor is present if a UART has actually been assigned
+    // to it. This does not verify the module is physically connected or
+    // responding (that is only known once opticalFlowIsHealthy() reports
+    // status after opticalFlowMicrolinkInit()/Update() start running), but it
+    // avoids reporting the sensor as detected with no wiring at all.
+    if (!findSerialPortConfig(FUNCTION_MICROLINK)) {
+        return false;
+    }
+
     dev->init = opticalFlowMicrolinkInit;
     dev->update = opticalFlowMicrolinkUpdate;
     dev->read = opticalFlowMicrolinkRead;
