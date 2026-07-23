@@ -29,6 +29,10 @@
 #include "drivers/rangefinder/rangefinder_microlink.h"
 #include "drivers/optical_flow/optical_flow_microlink.h"
 
+#include "io/serial.h"
+
+#include "pg/optical_flow.h"
+
 // MicroLink MTF-01/MTF-02 LIDAR specifications
 #define MICROLINK_RANGE_MIN 40      // 4cm minimum range
 #define MICROLINK_RANGE_MAX 12000   // 12m maximum range (12000mm)
@@ -80,6 +84,15 @@ uint8_t rangefinderMicrolinkGetQuality(void)
 
 bool rangefinderMicrolinkDetect(rangefinderDev_t *dev)
 {
+    // The MicroLink LIDAR data is received via the optical-flow driver's
+    // shared UART/parser. Only report the rangefinder as present if that
+    // UART is actually wired up and the optical-flow sensor is configured
+    // to use it, otherwise nothing will ever open the port or feed data in.
+    if (!findSerialPortConfig(FUNCTION_MICROLINK) ||
+        opticalFlowConfig()->optical_flow_hardware != OPTICAL_FLOW_MICROLINK) {
+        return false;
+    }
+
     dev->delayMs = 10;  // 10ms delay between readings (100Hz update rate)
     dev->maxRangeCm = MICROLINK_RANGE_MAX / 10;  // Convert mm to cm
     dev->detectionConeDeciDegrees = MICROLINK_DETECTION_CONE_DECIDEGREES;
