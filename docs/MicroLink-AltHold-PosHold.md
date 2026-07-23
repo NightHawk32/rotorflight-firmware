@@ -6,8 +6,8 @@ sensor driver, the new/changed configuration parameters, and a step-by-step guid
 for wiring up, configuring and testing Altitude Hold and Position Hold with a
 MicroLink MTF-01/MTF-02 module.
 
-> **Status:** experimental / work in progress. Several tuning parameters are not
-> yet exposed over CLI/MSP (see [Known limitations](#known-limitations)). Bench
+> **Status:** experimental / work in progress. See
+> [Known limitations](#known-limitations) for what is still unresolved. Bench
 > test extensively with props off before any flight test.
 
 ---
@@ -104,7 +104,7 @@ flowchart TD
 | --- | --- | --- |
 | `rangefinder_hardware` | `NONE`, `HCSR04`, `TFMINI`, `TF02`, **`MICROLINK`** (new) | Select `MICROLINK` to source LIDAR altitude from the MicroLink UART |
 | `optical_flow_hardware` | `NONE`, **`MICROLINK`** (new parameter/table) | Default is `MICROLINK`. New `PG_OPTICAL_FLOW_CONFIG` parameter group |
-| `position_alt_source` | `DEFAULT`, `BARO_ONLY`, `GPS_ONLY` | Enum gained a 4th value `ALT_SOURCE_LIDAR_ONLY` in the source, **but it is not yet added to the CLI lookup table and is not wired into `positionUpdate()`** — currently has no effect (see [Known limitations](#known-limitations)) |
+| `position_alt_source` | `DEFAULT`, `BARO_ONLY`, `GPS_ONLY`, **`LIDAR_ONLY`** (new) | When `LIDAR_ONLY` is selected, the general altitude/vario estimate (`getAltitude()`/`getEstimatedAltitudeCm()`, used by OSD/blackbox/telemetry) is sourced from the rangefinder AGL estimate instead of the baro/GPS blend |
 
 ### 3.2 New serial port function
 
@@ -112,29 +112,29 @@ flowchart TD
 | --- | --- | --- |
 | `FUNCTION_MICROLINK` | `1 << 21` (2097152) | Assign to the UART physically connected to the MicroLink module. Fixed at 115200 baud 8N1, opened internally by the optical-flow driver — you do not choose the baud rate via the `serial` command for this function |
 
-### 3.3 New PID-profile fields (⚠ not exposed via CLI yet)
+### 3.3 New PID-profile CLI parameters
 
-These fields were added to `pidProfile_t` (`pg/pid.h`) and have compiled-in
-defaults set in `pg/pid.c`, but **no `cli/settings.c` entries were added for
-them**. That means:
-- They cannot currently be read or changed with `get`/`set`, diff, or Configurator.
-- They cannot be saved/restored via `dump`/`diff` or blackbox headers.
-- The only way to change them today is to edit the defaults in
-  `src/main/pg/pid.c` and rebuild the firmware.
+These fields were added to `pidProfile_t` (`pg/pid.h`) with compiled-in
+defaults set in `pg/pid.c`, and are now exposed as regular per-profile CLI
+values (`cli/settings.c`), so they can be read/changed with `get`/`set`,
+saved/restored via `dump`/`diff`, and are visible in Configurator's CLI tab.
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `althold.alt_p_gain` | 20 | Altitude error → velocity setpoint, P gain ×10 (2.0) |
-| `althold.alt_i_gain` | 5 | Velocity-loop integral gain |
-| `althold.alt_d_gain` | 15 | Damping gain applied to vario (climb rate) |
-| `althold.max_climb_rate` | 200 | Max commanded climb/descent rate, cm/s |
-| `althold.stick_deadband` | 100 | Collective stick deadband, out of 1000 (10%) |
-| `althold.hover_collective` | 350 | Feed-forward hover collective, out of 1000 |
-| `poshold.pos_p_gain` | 50 | Position error (cm) → velocity setpoint, ×100 scale (0.5 (cm/s)/cm) |
-| `poshold.vel_p_gain` | 30 | Velocity error (cm/s) → tilt angle, ×100 scale (0.3°/(cm/s)) |
-| `poshold.max_horiz_speed` | 200 | Max commanded horizontal speed, cm/s |
-| `poshold.max_tilt_angle` | 150 | Max tilt angle, degrees ×10 (15.0°) |
-| `poshold.stick_deadband` | 100 | Roll/pitch stick deadband, out of 1000 (10%) |
+| CLI name | Field | Default | Range | Meaning |
+| --- | --- | --- | --- | --- |
+| `althold_alt_p_gain` | `althold.alt_p_gain` | 20 | 0-1000 | Altitude error → velocity setpoint, P gain ×10 (2.0) |
+| `althold_alt_i_gain` | `althold.alt_i_gain` | 5 | 0-1000 | Velocity-loop integral gain |
+| `althold_alt_d_gain` | `althold.alt_d_gain` | 15 | 0-1000 | Damping gain applied to vario (climb rate) |
+| `althold_max_climb_rate` | `althold.max_climb_rate` | 200 | 10-1000 | Max commanded climb/descent rate, cm/s |
+| `althold_stick_deadband` | `althold.stick_deadband` | 100 | 0-500 | Collective stick deadband, out of 1000 (10%) |
+| `althold_hover_collective` | `althold.hover_collective` | 350 | 0-1000 | Feed-forward hover collective, out of 1000 |
+| `poshold_pos_p_gain` | `poshold.pos_p_gain` | 50 | 0-1000 | Position error (cm) → velocity setpoint, ×100 scale (0.5 (cm/s)/cm) |
+| `poshold_vel_p_gain` | `poshold.vel_p_gain` | 30 | 0-1000 | Velocity error (cm/s) → tilt angle, ×100 scale (0.3°/(cm/s)) |
+| `poshold_max_horiz_speed` | `poshold.max_horiz_speed` | 200 | 10-1000 | Max commanded horizontal speed, cm/s |
+| `poshold_max_tilt_angle` | `poshold.max_tilt_angle` | 150 | 10-450 | Max tilt angle, degrees ×10 (15.0°) |
+| `poshold_stick_deadband` | `poshold.stick_deadband` | 100 | 0-500 | Roll/pitch stick deadband, out of 1000 (10%) |
+
+The `poshold_*` entries are compiled in whenever `USE_OPTICAL_FLOW` is defined
+(which is unconditional for all targets in this branch).
 
 ### 3.4 New flight mode / box
 
@@ -203,10 +203,10 @@ make TARGET=STM32F405 DEBUG=GDB -j4
    feature RANGEFINDER
    ```
    Optical flow does **not** need a `feature` flag — `TASK_OPTICAL_FLOW` is
-   enabled automatically once `optical_flow_hardware` is set and the sensor is
-   "detected" (note: detection currently just registers the driver, it does not
-   verify the module is actually connected/responding — see
-   [Known limitations](#known-limitations)).
+   enabled automatically once `optical_flow_hardware` is set and a UART is
+   assigned to `FUNCTION_MICROLINK` (detection checks that a port is
+   configured, but still can't verify the module itself is physically
+   connected/responding — see [Known limitations](#known-limitations)).
 
 4. Map switches to the flight modes:
    ```
@@ -222,9 +222,8 @@ make TARGET=STM32F405 DEBUG=GDB -j4
    save
    ```
 
-6. Tuning the gains in [§3.3](#33-new-pid-profile-fields--not-exposed-via-cli-yet)
-   currently requires editing `src/main/pg/pid.c` and reflashing — there is no
-   CLI/Configurator access yet.
+6. Tune the gains in [§3.3](#33-new-pid-profile-cli-parameters) directly with
+   `set althold_alt_p_gain = <value>` etc. — no rebuild required.
 
 ---
 
@@ -269,12 +268,13 @@ Test incrementally and always start props-off.
    - Test small collective stick inputs move the target altitude smoothly and
      the aircraft returns to holding once you release the stick.
    - Have your hand ready on the collective/mode switch to disengage instantly
-     if the response is aggressive or oscillates — because gains are currently
-     hard-coded, be conservative on the first flights and consider temporarily
-     lowering `hover_collective`/gains in the source for your specific aircraft
-     before flight.
-3. Disengage and land if anything looks wrong; re-tune (edit `pg/pid.c`,
-   rebuild) and repeat.
+     if the response is aggressive or oscillates. Be conservative on the first
+     flights — start with the default gains and reduce
+     `althold_hover_collective`/the P gains via CLI for your specific aircraft
+     before flight, rather than assuming the defaults are correct for it.
+3. Disengage and land if anything looks wrong; re-tune with `set
+   althold_alt_p_gain = <value>` (and the other `althold_*` parameters) and
+   repeat.
 
 ### 5.4 Position Hold test (only after Altitude Hold is verified good)
 
@@ -294,39 +294,74 @@ Test incrementally and always start props-off.
    Hold should disengage its angle contribution automatically
    (`isPositionXYValid()` returns false), but always keep a hand ready to
    switch back to normal Angle/Acro mode.
-4. Because there is no yaw/heading compensation in the current dead-reckoning
-   implementation (`position.c` always uses the flight-controller's
-   north/east rotation matrix, not a magnetometer-corrected heading), expect
-   drift/inaccuracy to grow with yaw changes and over longer hold durations —
-   this is a stability/drift feature to validate carefully, not a "GPS-grade"
-   hold.
+4. Try nudging the hold position with roll/pitch stick at a few different
+   headings (yaw left/right, then nudge again) to confirm the hold target
+   moves in the direction you actually commanded — this exercises the
+   heading-relative stick rotation described in
+   [Known limitations](#known-limitations).
+5. There is still no absolute-reference drift correction (no GPS/mag fusion)
+   in the dead-reckoning position estimate — expect inaccuracy to grow over
+   longer hold durations; this is a stability/drift characteristic to
+   validate carefully, not a "GPS-grade" hold.
 
 ---
 
 ## 6. Known limitations
 
-- **No CLI/MSP access to `althold.*`/`poshold.*` gains.** Tuning requires
-  editing `src/main/pg/pid.c` defaults and reflashing.
-- **`position_alt_source = ALT_SOURCE_LIDAR_ONLY` is a no-op.** The enum value
-  exists in `pg/position.h` but is missing from the CLI lookup table
-  (`lookupTablePositionAltSource` in `cli/settings.c`) and is never checked in
-  `positionUpdate()`. Altitude-hold's LIDAR preference is independent of this
-  setting (it's handled directly in `althold.c` via `isAGLAltitudeValid()`).
-- **Optical-flow "detection" doesn't probe the hardware.**
-  `opticalFlowMicrolinkDetect()` always returns `true` and simply registers
-  function pointers; there's no handshake/identification with the physical
-  module. A missing/dead sensor will just report `opticalFlowIsHealthy() ==
-  false` after the 500 ms timeout rather than failing sensor detection.
-- **No heading/yaw compensation** in the optical-flow dead-reckoning position
-  estimate — it rotates body-frame flow into earth-frame using the IMU's
-  current attitude rotation matrix only, with no drift correction against an
-  external reference (no GPS fusion, no magnetometer heading correction).
-- **Position estimate can silently reset/clamp.** Dead-reckoned position is
+### Fixed in this pass
+
+The following issues were identified while documenting the branch and have
+since been fixed in the source:
+
+- **CLI/MSP access to `althold.*`/`poshold.*` gains** — added as
+  `althold_alt_p_gain`, `poshold_pos_p_gain`, etc. (see
+  [§3.3](#33-new-pid-profile-cli-parameters)); no rebuild needed to tune.
+- **`position_alt_source = LIDAR_ONLY` was a no-op** — `LIDAR_ONLY` is now in
+  the CLI lookup table, and `positionUpdate()` now sources the general
+  altitude/vario estimate from the rangefinder AGL reading when it's
+  selected (falls back to `0` when the AGL reading isn't valid). The
+  baro/GPS `have*Alt` flags are also now reset when their source isn't
+  selected, instead of possibly holding a stale reading.
+- **Sensor "detection" accepted no wiring at all** —
+  `opticalFlowMicrolinkDetect()` and `rangefinderMicrolinkDetect()` now
+  require a UART to actually be assigned to `FUNCTION_MICROLINK`
+  (`findSerialPortConfig()`) before reporting the sensor as present; the
+  rangefinder detect additionally requires `optical_flow_hardware ==
+  MICROLINK`, since it depends on that driver to own the shared UART. This
+  still does not perform a real handshake with the physical module (see
+  below).
+- **Position Hold stick input ignored heading** — `poshold.c` moved the hold
+  target directly along East/North using the raw roll/pitch stick
+  regardless of yaw, which only matched the earth-frame position estimate
+  (which *is* yaw-aware via the IMU rotation matrix) when the aircraft was
+  pointed due north. Stick input is now rotated from body frame
+  (right/forward) into earth frame (East/North) using `attitude.values.yaw`
+  before being applied, so nudging the hold point moves it in the direction
+  actually commanded regardless of heading.
+
+### Still open
+
+- **Optical-flow/rangefinder detection still isn't a real hardware
+  handshake.** The fix above only checks that a UART is *configured* for
+  `FUNCTION_MICROLINK`; there's still no identification/handshake with the
+  physical module at detect time. A configured-but-disconnected sensor will
+  be reported as "detected" and will only be caught later, at runtime, via
+  `opticalFlowIsHealthy()` (500 ms response timeout).
+- **No absolute-reference drift correction.** The dead-reckoning XY position
+  estimate integrates optical-flow velocity with no GPS/mag fusion or other
+  external reference, so position error will still accumulate over time —
+  this is an inherent property of dead reckoning, not something fixable by
+  wiring/config changes alone.
+- **Position estimate silently resets/clamps.** Dead-reckoned position is
   clamped to a 1000 cm radius from the arm-time origin
   (`POSXY_MAX_DEADRECKONING_CM`) and marked invalid after 500 ms without a
-  qualifying flow sample — expect hold behaviour to degrade over long flights
-  or after periods of poor flow quality.
-- **Shared UART/protocol assumption:** the rangefinder and optical-flow drivers
-  both assume the *same* underlying MicoLink data stream/parser; there is
-  presently one shared internal buffer (`microlinkData`), so only a single
-  MicroLink module/UART is supported at a time.
+  qualifying flow sample — expect hold behaviour to degrade over long
+  flights or after periods of poor flow quality. This is a deliberate safety
+  clamp rather than a bug, but it's worth knowing about before trusting long
+  position holds.
+- **Single shared UART/module.** The rangefinder and optical-flow drivers
+  both read the *same* underlying MicoLink data stream through one shared
+  internal buffer (`microlinkData`), so only a single MicroLink module/UART
+  is supported at a time. Supporting multiple modules would need a larger
+  refactor of the driver layer (per-instance state instead of a single
+  static struct).
