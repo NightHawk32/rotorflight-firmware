@@ -89,19 +89,36 @@ void posHoldUpdate(void)
     const float stickRoll  = getRcDeflection(FD_ROLL);
     const float stickPitch = getRcDeflection(FD_PITCH);
 
+    // Body-frame stick rates (right/forward, cm/s), before rotation to earth frame
+    float bodyRightRate   = 0.0f;
+    float bodyForwardRate = 0.0f;
+
     if (fabsf(stickRoll) > ph.stickDeadband) {
         const float sign = (stickRoll > 0) ? 1.0f : -1.0f;
         const float rate = (fabsf(stickRoll) - ph.stickDeadband) /
                            (1.0f - ph.stickDeadband);
-        // Roll → East displacement in body-yaw-aligned frame
-        // Approximate: use heading=0 for now (no magnetometer required)
-        ph.holdX += sign * rate * ph.maxHorizSpeed * pidGetDT();
+        bodyRightRate = sign * rate * ph.maxHorizSpeed;
     }
     if (fabsf(stickPitch) > ph.stickDeadband) {
         const float sign = (stickPitch > 0) ? 1.0f : -1.0f;
         const float rate = (fabsf(stickPitch) - ph.stickDeadband) /
                            (1.0f - ph.stickDeadband);
-        ph.holdY += sign * rate * ph.maxHorizSpeed * pidGetDT();
+        bodyForwardRate = sign * rate * ph.maxHorizSpeed;
+    }
+
+    if (bodyRightRate != 0.0f || bodyForwardRate != 0.0f) {
+        // Rotate body-frame (right, forward) stick rates into earth-frame
+        // (East, North) using the current heading, so the hold target moves
+        // in the direction the pilot is actually commanding regardless of yaw.
+        const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
+        const float cosYaw = cos_approx(yawRad);
+        const float sinYaw = sin_approx(yawRad);
+
+        const float eastRate  = bodyForwardRate * sinYaw + bodyRightRate * cosYaw;
+        const float northRate = bodyForwardRate * cosYaw - bodyRightRate * sinYaw;
+
+        ph.holdX += eastRate  * pidGetDT();
+        ph.holdY += northRate * pidGetDT();
     }
 
     // --- Outer loop: position error → velocity command ---
