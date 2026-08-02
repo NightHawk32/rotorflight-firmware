@@ -31,6 +31,7 @@
 
 #include "flight/pid.h"
 #include "flight/imu.h"
+#include "flight/mixer.h"
 #include "flight/position.h"
 #include "flight/governor.h"
 
@@ -215,6 +216,21 @@ bool isHandsOn(void)
 
 bool isAirborne(void)
 {
+    // Quads have no collective/headspeed to base spool-up detection on, and
+    // use airmode, so landing is only ever signalled by disarming. Latch
+    // airborne as soon as the throttle has been raised once after arming,
+    // and only clear it again on disarm.
+    if (mixerIsQuad()) {
+        static bool quadAirborne = false;
+
+        if (!ARMING_FLAG(ARMED))
+            quadAirborne = false;
+        else if (!quadAirborne && getThrottle() > 0.10f)
+            quadAirborne = true;
+
+        return quadAirborne;
+    }
+
     return (
         ARMING_FLAG(ARMED) &&
         isSpooledUp() &&

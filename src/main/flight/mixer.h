@@ -147,3 +147,9 @@ static inline bool mixerIsTailMode(int mode)
 {
     return (mixerConfig()->tail_rotor_mode == mode);
 }
+
+static inline bool mixerIsQuad(void)
+{
+    return (mixerConfig()->swash_type == SWASH_TYPE_QUAD ||
+            mixerConfig()->swash_type == SWASH_TYPE_QUADDC);
+}
