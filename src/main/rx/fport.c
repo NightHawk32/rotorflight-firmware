@@ -33,6 +33,7 @@
 #include "common/utils.h"
 
 #include "drivers/time.h"
+#include "drivers/rx_uart_pinio.h"
 
 #include "io/serial.h"
 
@@ -235,10 +236,18 @@ static void smartPortWriteFrameFport(const smartPortPayload_t *payload)
 {
     framePosition = 0;
 
+    // Take over the shared pin to transmit, then hand it back to the RX buffer
+    // once the bytes have actually left the UART (external buffers, not the MCU's
+    // own half-duplex peripheral mode, arbitrate the direction on this board).
+    rxUartPinioSetDirection(true, false);
+
     uint16_t checksum = 0;
     smartPortSendByte(FPORT_RESPONSE_FRAME_LENGTH, &checksum, fportPort);
     smartPortSendByte(FPORT_FRAME_TYPE_TELEMETRY_RESPONSE, &checksum, fportPort);
     smartPortWriteFrameSerial(payload, fportPort, checksum);
+
+    waitForSerialPortToFinishTransmitting(fportPort);
+    rxUartPinioSetDirection(false, true);
 }
 #endif
 
@@ -410,7 +419,11 @@ bool fportRxInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
         MODE_RXTX,
         FPORT_PORT_OPTIONS |
             (rxConfig->serialrx_inverted ? SERIAL_INVERTED : SERIAL_NOT_INVERTED) |
-            (rxConfig->halfDuplex ? SERIAL_BIDIR | SERIAL_BIDIR_PP : SERIAL_UNIDIR) |
+            // Boards that assign RX_UART_TX_EN/RX_UART_RX_EN resources arbitrate
+            // direction externally via those buffers, so the UART peripheral must
+            // stay in normal full-duplex mode. All other boards keep the existing
+            // internal USART half-duplex behavior, unaffected.
+            (rxUartPinioIsConfigured() ? SERIAL_UNIDIR : (rxConfig->halfDuplex ? SERIAL_BIDIR | SERIAL_BIDIR_PP : SERIAL_UNIDIR)) |
             (rxConfig->pinSwap ? SERIAL_PINSWAP : SERIAL_NOSWAP)
     );
 
@@ -422,6 +435,10 @@ bool fportRxInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
         if (rssiSource == RSSI_SOURCE_NONE) {
             rssiSource = RSSI_SOURCE_RX_PROTOCOL;
         }
+
+        // Default to listening; smartPortWriteFrameFport() flips this for the
+        // duration of a telemetry response.
+        rxUartPinioSetDirection(false, true);
     }
 
     return fportPort != NULL;

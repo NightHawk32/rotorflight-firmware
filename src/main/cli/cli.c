@@ -5354,6 +5354,10 @@ const cliResourceValue_t resourceTable[] = {
     DEFS( OWNER_RX_BIND,       PG_RX_CONFIG, rxConfig_t, spektrum_bind_pin_override_ioTag ),
     DEFS( OWNER_RX_BIND_PLUG,  PG_RX_CONFIG, rxConfig_t, spektrum_bind_plug_ioTag ),
 #endif
+#ifdef USE_RX_UART_PINIO
+    DEFS( OWNER_RX_UART_TX_EN, PG_RX_CONFIG, rxConfig_t, rxUartTxEnIoTag ),
+    DEFS( OWNER_RX_UART_RX_EN, PG_RX_CONFIG, rxConfig_t, rxUartRxEnIoTag ),
+#endif
 #ifdef USE_SPI
     DEFW( OWNER_SPI_SCK,       PG_SPI_PIN_CONFIG, spiPinConfig_t, ioTagSck, SPIDEV_COUNT ),
     DEFW( OWNER_SPI_MISO,      PG_SPI_PIN_CONFIG, spiPinConfig_t, ioTagMiso, SPIDEV_COUNT ),

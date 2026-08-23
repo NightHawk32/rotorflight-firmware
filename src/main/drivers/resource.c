@@ -115,4 +115,6 @@ const char * const ownerNames[OWNER_TOTAL_COUNT] = {
     "FREQ",
     "ACC_CS",
     "GYRO_CLK",
+    "RX_UART_TX_EN",
+    "RX_UART_RX_EN",
 };

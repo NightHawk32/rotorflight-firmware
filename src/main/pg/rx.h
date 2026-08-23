@@ -42,6 +42,10 @@ typedef struct rxConfig_s {
     uint8_t rssi_src_frame_lpf_period;         // Period of the cutoff frequency for the source frame RSSI filter (in 0.1 s)
     ioTag_t spektrum_bind_pin_override_ioTag;
     ioTag_t spektrum_bind_plug_ioTag;
+#ifdef USE_RX_UART_PINIO
+    ioTag_t rxUartTxEnIoTag;           // external TX buffer enable pin (shared invert-capable RX serial pin)
+    ioTag_t rxUartRxEnIoTag;           // external RX buffer enable pin (shared invert-capable RX serial pin)
+#endif
     uint8_t spektrum_sat_bind;                 // number of bind pulses for Spektrum satellite receivers
     uint8_t spektrum_sat_bind_autoreset;       // whenever we will reset (exit) binding mode after hard reboot
     uint8_t srxl2_unit_id;                     // Spektrum SRXL2 RX unit id

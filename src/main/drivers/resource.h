@@ -113,6 +113,8 @@ typedef enum {
     OWNER_FREQ,
     OWNER_ACC_CS,
     OWNER_GYRO_CLK,
+    OWNER_RX_UART_TX_EN,
+    OWNER_RX_UART_RX_EN,
     OWNER_TOTAL_COUNT
 } resourceOwner_e;
 

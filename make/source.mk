@@ -321,6 +321,7 @@ SIZE_OPTIMISED_SRC := $(SIZE_OPTIMISED_SRC) \
             drivers/compass/compass_lis3mdl.c \
             drivers/display_ug2864hsweg01.c \
             drivers/inverter.c \
+            drivers/rx_uart_pinio.c \
             drivers/light_ws2811strip.c \
             drivers/light_ws2811strip_hal.c \
             drivers/light_ws2811strip_stdperiph.c \

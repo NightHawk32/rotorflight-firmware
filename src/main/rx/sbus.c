@@ -31,6 +31,7 @@
 #include "common/utils.h"
 
 #include "drivers/time.h"
+#include "drivers/rx_uart_pinio.h"
 
 #include "io/serial.h"
 
@@ -243,6 +244,10 @@ bool sbusInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
         telemetrySharedPort = sBusPort;
     }
 #endif
+
+    // SBUS is RX-only on the shared invert-capable pin; the TX driver stays off.
+    // (SBUS2 telemetry, if used, needs the same dynamic TX/RX toggling as FPort/FBUS.)
+    rxUartPinioSetDirection(false, true);
 
     return sBusPort != NULL;
 }

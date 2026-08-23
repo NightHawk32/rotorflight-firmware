@@ -36,6 +36,8 @@
 
 #include "config/config.h"
 
+#include "drivers/rx_uart_pinio.h"
+
 #include "pg/rx.h"
 
 #include "drivers/persistent.h"
@@ -660,6 +662,11 @@ bool crsfRxInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
         linkQualitySource = LQ_SOURCE_RX_PROTOCOL_CRSF;
     }
 #endif
+
+    // CRSF is genuine full duplex on two independent wires: keep the TX driver on
+    // continuously and leave the shared invert/half-duplex RX buffer disabled so it
+    // can't contend with the always-on direct RX line.
+    rxUartPinioSetDirection(true, false);
 
     return serialPort != NULL;
 }

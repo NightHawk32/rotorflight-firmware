@@ -58,6 +58,7 @@
 #include "drivers/exti.h"
 #include "drivers/flash.h"
 #include "drivers/inverter.h"
+#include "drivers/rx_uart_pinio.h"
 #include "drivers/io.h"
 #include "drivers/light_led.h"
 #include "drivers/mco.h"
@@ -565,6 +566,10 @@ void init(void)
 /* temp until PGs are implemented. */
 #if defined(USE_INVERTER) && !defined(SIMULATOR_BUILD)
     initInverters(serialPinConfig());
+#endif
+
+#if defined(USE_RX_UART_PINIO) && !defined(SIMULATOR_BUILD)
+    rxUartPinioInit();
 #endif
 
 /* Initialize SRXL2 ESC driver immediately after serial ports are ready

@@ -174,6 +174,13 @@
 
 #define USE_INVERTER
 
+// Support for boards (e.g. XLPower F4 Mini) whose RX port uses an external
+// TX_EN/RX_EN tri-state buffer pair for direction arbitration instead of the
+// (nonexistent, on F405) internal USART half-duplex mode. Inert (no pins
+// assigned, no behavior change) unless a board's own unified-target config
+// explicitly sets the RX_UART_TX_EN/RX_UART_RX_EN resources.
+#define USE_RX_UART_PINIO
+
 #define USE_SDCARD_SDIO
 
 #define USE_SPI_DEVICE_1
