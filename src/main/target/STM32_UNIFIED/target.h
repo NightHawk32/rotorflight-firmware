@@ -120,7 +120,14 @@
 
 #define USE_SERVO_GEOMETRY_CORRECTION
 
+// Disabled for DEBUG=GDB builds: -Og is unoptimized and overflows flash on
+// some unified targets (e.g. STM32F7X2) once CMS is included. Release
+// builds (-O2/LTO) are unaffected.
+#ifndef DEBUG_BUILD
 #define USE_CMS
+#else
+#undef USE_CMS
+#endif
 
 #undef USE_CRSF_V3
 

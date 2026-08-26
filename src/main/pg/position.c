@@ -25,7 +25,7 @@
 #include "pg/pg_ids.h"
 #include "pg/position.h"
 
-PG_REGISTER_WITH_RESET_TEMPLATE(positionConfig_t, positionConfig, PG_POSITION, 0);
+PG_REGISTER_WITH_RESET_TEMPLATE(positionConfig_t, positionConfig, PG_POSITION, 1);
 
 PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .alt_source = ALT_SOURCE_DEFAULT,
@@ -35,4 +35,14 @@ PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .gps_offset_lpf = 5,
     .gps_min_sats = 12,
     .vario_lpf = 50,
+    // Estimator defaults ported from Betaflight position_estimator.c,
+    // tuned for a 100Hz fusion rate (ESTIMATOR_PERIOD_US in flight/position.c).
+    .xy_source = XY_SOURCE_AUTO,
+    .est_q_accel_xy = 50000,
+    .est_q_accel_z = 20000,
+    .est_r_baro_alt = 1500,
+    .est_r_rangefinder_alt = 100,
+    .est_r_gps_pos = 500,
+    .est_r_gps_vel = 100,
+    .est_r_flow_vel = 400,
 );
