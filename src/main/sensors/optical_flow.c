@@ -151,6 +151,15 @@ uint8_t opticalFlowGetLatestQuality(void)
     return opticalFlow.quality;
 }
 
+/**
+ * Timestamp of the most recent successfully decoded sample.
+ * Lets consumers (the position estimator) fuse each sample exactly once.
+ */
+timeMs_t opticalFlowGetLastUpdateMs(void)
+{
+    return opticalFlow.lastValidResponseTimeMs;
+}
+
 bool opticalFlowIsHealthy(void)
 {
     return (millis() - opticalFlow.lastValidResponseTimeMs) < OPTICAL_FLOW_HARDWARE_TIMEOUT_MS;

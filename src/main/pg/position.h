@@ -27,6 +27,12 @@ enum {
     ALT_SOURCE_LIDAR_ONLY,
 };
 
+enum {
+    XY_SOURCE_AUTO = 0,     // fuse GPS and optical flow, whichever is healthy
+    XY_SOURCE_GPS_ONLY,
+    XY_SOURCE_FLOW_ONLY,
+};
+
 typedef struct positionConfig_s {
     uint8_t alt_source;
     uint8_t baro_alt_lpf;
@@ -35,6 +41,16 @@ typedef struct positionConfig_s {
     uint8_t gps_offset_lpf;
     uint8_t gps_min_sats;
     uint8_t vario_lpf;
+
+    // State estimator (per-axis position/velocity Kalman filters)
+    uint8_t  xy_source;         // XY_SOURCE_*: which sensors feed the horizontal estimate
+    uint16_t est_q_accel_xy;    // process noise: horizontal accel variance (cm/s^2)^2
+    uint16_t est_q_accel_z;     // process noise: vertical accel variance (cm/s^2)^2
+    uint16_t est_r_baro_alt;    // measurement noise: baro altitude (cm^2)
+    uint16_t est_r_rangefinder_alt; // measurement noise: rangefinder altitude (cm^2)
+    uint16_t est_r_gps_pos;     // measurement noise: GPS position (cm^2) at HDOP 1.0
+    uint16_t est_r_gps_vel;     // measurement noise: GPS velocity ((cm/s)^2) at HDOP 1.0
+    uint16_t est_r_flow_vel;    // measurement noise: optical flow velocity ((cm/s)^2) at max quality
 } positionConfig_t;
 
 PG_DECLARE(positionConfig_t, positionConfig);
