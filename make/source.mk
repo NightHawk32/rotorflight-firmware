@@ -92,6 +92,7 @@ COMMON_SRC = \
             fc/rc_modes.c \
             fc/rc_rates.c \
             flight/position.c \
+            flight/kalman.c \
             flight/althold.c \
             flight/poshold.c \
             flight/failsafe.c \

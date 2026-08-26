@@ -424,6 +424,10 @@ static const char * const lookupTablePositionAltSource[] = {
     "DEFAULT", "BARO_ONLY", "GPS_ONLY", "LIDAR_ONLY"
 };
 
+static const char * const lookupTablePositionXYSource[] = {
+    "AUTO", "GPS_ONLY", "FLOW_ONLY"
+};
+
 static const char * const lookupTableOffOnAuto[] = {
     "OFF", "ON", "AUTO"
 };
@@ -615,6 +619,7 @@ const lookupTableEntry_t lookupTables[] = {
 #endif
 
     LOOKUP_TABLE_ENTRY(lookupTablePositionAltSource),
+    LOOKUP_TABLE_ENTRY(lookupTablePositionXYSource),
     LOOKUP_TABLE_ENTRY(lookupTableOffOnAuto),
     LOOKUP_TABLE_ENTRY(lookupTableFeedforwardAveraging),
     LOOKUP_TABLE_ENTRY(lookupTableDshotBitbangedTimer),
@@ -1785,6 +1790,14 @@ const clivalue_t valueTable[] = {
     { "position_gps_offset_lpf",   VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 250 }, PG_POSITION, offsetof(positionConfig_t, gps_offset_lpf) },
     { "position_gps_min_sats",     VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_POSITION, offsetof(positionConfig_t, gps_min_sats) },
     { "position_vario_lpf",        VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 250 }, PG_POSITION, offsetof(positionConfig_t, vario_lpf) },
+    { "position_xy_source",        VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_POSITION_XY_SOURCE }, PG_POSITION, offsetof(positionConfig_t, xy_source) },
+    { "position_est_q_accel_xy",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_q_accel_xy) },
+    { "position_est_q_accel_z",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_q_accel_z) },
+    { "position_est_r_baro_alt",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_baro_alt) },
+    { "position_est_r_lidar_alt",  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_rangefinder_alt) },
+    { "position_est_r_gps_pos",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_gps_pos) },
+    { "position_est_r_gps_vel",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_gps_vel) },
+    { "position_est_r_flow_vel",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_flow_vel) },
 
 // PG_MODE_ACTIVATION_CONFIG
 #if defined(USE_CUSTOM_BOX_NAMES)

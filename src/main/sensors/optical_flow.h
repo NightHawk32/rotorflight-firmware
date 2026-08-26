@@ -37,6 +37,7 @@ bool opticalFlowInit(void);
 int16_t opticalFlowGetLatestX(void);
 int16_t opticalFlowGetLatestY(void);
 uint8_t opticalFlowGetLatestQuality(void);
+timeMs_t opticalFlowGetLastUpdateMs(void);
 
 void opticalFlowUpdate(void);
 bool opticalFlowIsHealthy(void);
