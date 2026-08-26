@@ -40,6 +40,7 @@
 
 #include "drivers/light_led.h"
 #include "drivers/time.h"
+#include "drivers/crsf_sensors.h"
 
 #include "io/beeper.h"
 #include "io/dashboard.h"
@@ -317,6 +318,19 @@ bool gpsUsesFbusTransport(void)
 #endif
 }
 
+bool gpsUsesCrsfTransport(void)
+{
+#ifdef USE_CRSF_SENSORS
+    if (gpsConfig()->provider != GPS_CRSF) {
+        return false;
+    }
+
+    return findSerialPortConfig(FUNCTION_CRSF_SENSORS) != NULL;
+#else
+    return false;
+#endif
+}
+
 void gpsInit(void)
 {
     gpsData.baudrateIndex = 0;
@@ -330,7 +344,7 @@ void gpsInit(void)
 
     gpsData.lastMessage = millis();
 
-    if (gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport()) { // no serial port is used when GPS is fed by MSP or FBUS
+    if (gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport() || gpsUsesCrsfTransport()) { // no serial port is used when GPS is fed by MSP, FBUS or CRSF
         gpsSetState(GPS_STATE_INITIALIZED);
         return;
     }
@@ -780,12 +794,26 @@ void gpsUpdate(timeUs_t currentTimeUs)
         // Restore default task rate
         rescheduleTask(TASK_SELF, TASK_PERIOD_HZ(TASK_GPS_RATE));
     }
+    
+    if (gpsUsesCrsfTransport()) {
+        crsfSensorsGpsData_t crsfGps;
+        if (crsfSensorsGetGpsData(&crsfGps)) {
+            gpsSol.llh.lat = crsfGps.latitude;
+            gpsSol.llh.lon = crsfGps.longitude;
+            gpsSol.llh.altCm = crsfGps.altitudeCm;
+            gpsSol.groundSpeed = crsfGps.groundspeedCmS;
+            gpsSol.groundCourse = crsfGps.headingDeg10;
+            gpsSol.numSat = crsfGps.satellites;
+            gpsSetFixState(crsfGps.satellites > 0);
+            GPS_update |= GPS_MSP_UPDATE;
+        }
+    }
 
-    // GPS data received via MSP or FBUS
+    // GPS data received via MSP, FBUS or CRSF
     if (GPS_update & GPS_MSP_UPDATE) {
-        if (gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport()) {
+        if (gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport() || gpsUsesCrsfTransport()) {
             gpsSetState(GPS_STATE_RECEIVING_DATA);
-            if (gpsUsesFbusTransport()) {
+            if (gpsUsesFbusTransport() || gpsUsesCrsfTransport()) {
                 sensorsSet(SENSOR_GPS);
             }
             onGpsNewData();
@@ -807,8 +835,8 @@ void gpsUpdate(timeUs_t currentTimeUs)
         case GPS_STATE_INITIALIZING:
         case GPS_STATE_CHANGE_BAUD:
         case GPS_STATE_CONFIGURE:
-            // Skip hardware initialization for MSP and FBUS GPS (no serial port)
-            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport()) {
+            // Skip hardware initialization for MSP, FBUS and CRSF GPS (no serial port)
+            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport() && !gpsUsesCrsfTransport()) {
                 gpsInitHardware();
             }
             break;
@@ -822,16 +850,16 @@ void gpsUpdate(timeUs_t currentTimeUs)
             }
             gpsSol.numSat = 0;
             DISABLE_STATE(GPS_FIX);
-            // Don't try to reinitialize MSP/FBUS GPS on timeout
-            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport()) {
+            // Don't try to reinitialize MSP/FBUS/CRSF GPS on timeout
+            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport() && !gpsUsesCrsfTransport()) {
                 gpsSetState(GPS_STATE_INITIALIZING);
             }
             break;
 
         case GPS_STATE_RECEIVING_DATA:
             // check for no data/gps timeout/cable disconnection etc
-            // Skip timeout check for MSP/FBUS GPS (data comes from other sources)
-            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport()) {
+            // Skip timeout check for MSP/FBUS/CRSF GPS (data comes from other sources)
+            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport() && !gpsUsesCrsfTransport()) {
                 if (millis() - gpsData.lastMessage > GPS_TIMEOUT) {
                     gpsSetState(GPS_STATE_LOST_COMMUNICATION);
 #ifdef USE_GPS_UBLOX

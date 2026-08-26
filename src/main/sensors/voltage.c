@@ -32,6 +32,7 @@
 
 #include "drivers/adc.h"
 #include "drivers/fbus_sensor.h"
+#include "drivers/crsf_sensors.h"
 
 #include "sensors/battery.h"
 #include "sensors/esc_sensor.h"
@@ -148,6 +149,9 @@ static voltageSensorState_t voltageESCSensor;
 #if defined(USE_FBUS_MASTER) || defined(USE_SPORT_MASTER)
 static voltageSensorState_t voltageFBUSSensor;
 #endif
+#ifdef USE_CRSF_SENSORS
+static voltageSensorState_t voltageCRSFSensor;
+#endif
 
 bool voltageSensorESCReadMotor(uint8_t motorNumber, voltageMeter_t *meter)
 {
@@ -251,6 +255,48 @@ void voltageSensorFBUSInit(void)
 #if defined(USE_FBUS_MASTER) || defined(USE_SPORT_MASTER)
     memset(&voltageFBUSSensor, 0, sizeof(voltageFBUSSensor));
     lowpassFilterInit(&voltageFBUSSensor.filter, LPF_BESSEL,
+        batteryConfig()->vbatLpfHz,
+        batteryConfig()->vbatUpdateHz, 0);
+#endif
+}
+
+bool voltageSensorCRSFRead(voltageMeter_t *meter)
+{
+#ifdef USE_CRSF_SENSORS
+    const voltageSensorState_t *state = &voltageCRSFSensor;
+
+    meter->sample = state->sample;
+    meter->voltage = state->voltage;
+    return state->enabled;
+#else
+    voltageMeterReset(meter);
+    return false;
+#endif
+}
+
+void voltageSensorCRSFRefresh(void)
+{
+#ifdef USE_CRSF_SENSORS
+    voltageSensorState_t *state = &voltageCRSFSensor;
+    crsfSensorsBatteryData_t battery;
+
+    if (crsfSensorsGetBatteryData(&battery)) {
+        state->sample = battery.voltageMv;
+        state->voltage = filterApply(&state->filter, state->sample);
+        state->enabled = true;
+    } else {
+        state->sample = 0;
+        state->voltage = 0;
+        state->enabled = false;
+    }
+#endif
+}
+
+void voltageSensorCRSFInit(void)
+{
+#ifdef USE_CRSF_SENSORS
+    memset(&voltageCRSFSensor, 0, sizeof(voltageCRSFSensor));
+    lowpassFilterInit(&voltageCRSFSensor.filter, LPF_BESSEL,
         batteryConfig()->vbatLpfHz,
         batteryConfig()->vbatUpdateHz, 0);
 #endif

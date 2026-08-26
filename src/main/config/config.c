@@ -207,15 +207,17 @@ static void validateAndFixConfig(void)
 #if defined(USE_GPS)
     const serialPortConfig_t *gpsSerial = findSerialPortConfig(FUNCTION_GPS);
     const bool gpsUsesFbus = gpsUsesFbusTransport();
+    const bool gpsUsesCrsf = gpsUsesCrsfTransport();
     const bool gpsHasValidTransport =
         gpsConfig()->provider == GPS_MSP ||
         gpsSerial != NULL ||
-        gpsUsesFbus;
+        gpsUsesFbus ||
+        gpsUsesCrsf;
 
     if (gpsConfig()->provider == GPS_MSP && gpsSerial) {
         serialRemovePort(gpsSerial->identifier);
     }
-    if (gpsUsesFbus && gpsSerial) {
+    if ((gpsUsesFbus || gpsUsesCrsf) && gpsSerial) {
         serialRemovePort(gpsSerial->identifier);
     }
 #endif
