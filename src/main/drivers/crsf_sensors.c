@@ -126,8 +126,8 @@ static void handleBatteryFrame(const uint8_t *payload, uint8_t payloadLength, ti
     const uint16_t rawVoltage = be16Read(&payload[0]);
     const uint16_t rawCurrent = be16Read(&payload[2]);
 
-    batteryData.voltageMv = (uint32_t)rawVoltage * 10U;
-    batteryData.currentMa = (uint32_t)rawCurrent * 10U;
+    batteryData.voltageMv = (uint32_t)rawVoltage * 100U;
+    batteryData.currentMa = (uint32_t)rawCurrent * 100U;
     batteryData.capacityMah = be24Read(&payload[4]);
     batteryData.remainingPct = payload[7];
     batteryData.valid = true;
@@ -183,7 +183,7 @@ static void crsfSensorsDataReceive(uint16_t c, void *data)
     const uint8_t byte = (uint8_t)c;
 
     if (rxPosition == 0) {
-        if (byte != CRSF_SYNC_BYTE) {
+        if (byte != CRSF_SYNC_BYTE && byte != CRSF_ADDRESS_CRSF_RECEIVER) {
             return;
         }
         rxBuffer[rxPosition++] = byte;
