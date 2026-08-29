@@ -3835,13 +3835,6 @@ static void processBeeperCommand(const char *cmdName, char *cmdline, uint32_t *o
     }
 }
 
-#if defined(USE_DSHOT)
-static void cliBeacon(const char *cmdName, char *cmdline)
-{
-    processBeeperCommand(cmdName, cmdline, &(beeperConfigMutable()->dshotBeaconOffFlags), DSHOT_BEACON_ALLOWED_MODES);
-}
-#endif
-
 static void cliBeeper(const char *cmdName, char *cmdline)
 {
     processBeeperCommand(cmdName, cmdline, &(beeperConfigMutable()->beeper_off_flags), BEEPER_ALLOWED_MODES);
@@ -6535,10 +6528,6 @@ static void printConfig(const char *cmdName, char *cmdline, bool doDiff)
 
 #if defined(USE_BEEPER)
             printBeeper(dumpMask, beeperConfig_Copy.beeper_off_flags, beeperConfig()->beeper_off_flags, "beeper", BEEPER_ALLOWED_MODES, "beeper");
-
-#if defined(USE_DSHOT)
-            printBeeper(dumpMask, beeperConfig_Copy.dshotBeaconOffFlags, beeperConfig()->dshotBeaconOffFlags, "beacon", DSHOT_BEACON_ALLOWED_MODES, "beacon");
-#endif
 #endif // USE_BEEPER
 
             printMap(dumpMask, &rxConfig_Copy, rxConfig(), "map");
@@ -6750,10 +6739,6 @@ const clicmd_t cmdTable[] = {
     CLI_COMMAND_DEF("batch", "start or end a batch of commands", "start | end", cliBatch),
 #endif
 #if defined(USE_BEEPER)
-#if defined(USE_DSHOT)
-    CLI_COMMAND_DEF("beacon", "enable/disable Dshot beacon for a condition", "list\r\n"
-        "\t<->[name]", cliBeacon),
-#endif
     CLI_COMMAND_DEF("beeper", "enable/disable beeper for a condition", "list\r\n"
         "\t<->[name]", cliBeeper),
 #endif // USE_BEEPER

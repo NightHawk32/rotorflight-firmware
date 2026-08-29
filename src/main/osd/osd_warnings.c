@@ -39,7 +39,6 @@
 #include "drivers/osd_symbols.h"
 #include "drivers/time.h"
 
-#include "fc/core.h"
 #include "fc/rc.h"
 #include "fc/rc_modes.h"
 #include "fc/runtime_config.h"
@@ -49,8 +48,6 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
-
-#include "io/beeper.h"
 
 #include "osd/osd.h"
 #include "osd/osd_elements.h"
@@ -109,21 +106,6 @@ void renderOsdWarning(char *warningText, bool *blinking, uint8_t *displayAttr)
         }
     }
 
-#ifdef USE_DSHOT
-    if (isTryingToArm() && !ARMING_FLAG(ARMED)) {
-        int armingDelayTime = (getLastDshotBeaconCommandTimeUs() + DSHOT_BEACON_GUARD_DELAY_US - currentTimeUs) / 1e5;
-        if (armingDelayTime < 0) {
-            armingDelayTime = 0;
-        }
-        if (armingDelayTime >= (DSHOT_BEACON_GUARD_DELAY_US / 1e5 - 5)) {
-            tfp_sprintf(warningText, " BEACON ON"); // Display this message for the first 0.5 seconds
-        } else {
-            tfp_sprintf(warningText, "ARM IN %d.%d", armingDelayTime / 10, armingDelayTime % 10);
-        }
-        *displayAttr = DISPLAYPORT_ATTR_INFO;
-        return;
-    }
-#endif // USE_DSHOT
     if (osdWarnGetState(OSD_WARNING_FAIL_SAFE) && failsafeIsActive()) {
         tfp_sprintf(warningText, "FAIL SAFE");
         *displayAttr = DISPLAYPORT_ATTR_CRITICAL;

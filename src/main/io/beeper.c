@@ -27,17 +27,13 @@
 
 #include "config/feature.h"
 
-#include "drivers/dshot_command.h"
 #include "drivers/io.h"
 #include "drivers/pwm_output.h"
 #include "drivers/sound_beeper.h"
 #include "drivers/system.h"
 #include "drivers/time.h"
 
-#include "flight/mixer.h"
-
 #include "config/config.h"
-#include "fc/core.h"
 #include "fc/runtime_config.h"
 
 #include "io/statusindicator.h"
@@ -81,10 +77,6 @@
 
 #define BEEPER_COMMAND_REPEAT 0xFE
 #define BEEPER_COMMAND_STOP   0xFF
-
-#ifdef USE_DSHOT
-static timeUs_t lastDshotBeaconCommandTimeUs;
-#endif
 
 #ifdef USE_BEEPER
 /* Beeper Sound Sequences: (Square wave generation)
@@ -394,18 +386,6 @@ void beeperUpdate(timeUs_t currentTimeUs)
     }
 
     if (!beeperIsOn) {
-#ifdef USE_DSHOT
-        if (!areMotorsRunning()
-            && ((currentBeeperEntry->mode == BEEPER_RX_SET && !(beeperConfig()->dshotBeaconOffFlags & BEEPER_GET_FLAG(BEEPER_RX_SET)))
-            || (currentBeeperEntry->mode == BEEPER_RX_LOST && !(beeperConfig()->dshotBeaconOffFlags & BEEPER_GET_FLAG(BEEPER_RX_LOST))))) {
-
-            if ((currentTimeUs - getLastDisarmTimeUs() > DSHOT_BEACON_GUARD_DELAY_US) && !isTryingToArm()) {
-                lastDshotBeaconCommandTimeUs = currentTimeUs;
-                dshotCommandWrite(ALL_MOTORS, getMotorCount(), beeperConfig()->dshotBeaconTone, DSHOT_CMD_TYPE_INLINE);
-            }
-        }
-#endif
-
         if (currentBeeperEntry->sequence[beeperPos] != 0) {
             if (!(beeperConfig()->beeper_off_flags & BEEPER_GET_FLAG(currentBeeperEntry->mode))) {
                 BEEP_ON;
@@ -528,11 +508,4 @@ const char *beeperNameForTableIndex(int idx) {UNUSED(idx); return NULL;}
 int beeperTableEntryCount(void) {return 0;}
 bool isBeeperOn(void) {return false;}
 
-#endif
-
-#ifdef USE_DSHOT
-timeUs_t getLastDshotBeaconCommandTimeUs(void)
-{
-    return lastDshotBeaconCommandTimeUs;
-}
 #endif

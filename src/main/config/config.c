@@ -481,17 +481,6 @@ static void validateAndFixConfig(void)
     if (beeperConfig()->beeper_off_flags & ~BEEPER_ALLOWED_MODES) {
         beeperConfigMutable()->beeper_off_flags = 0;
     }
-
-#ifdef USE_DSHOT
-    if (beeperConfig()->dshotBeaconOffFlags & ~DSHOT_BEACON_ALLOWED_MODES) {
-        beeperConfigMutable()->dshotBeaconOffFlags = 0;
-    }
-
-    if (beeperConfig()->dshotBeaconTone < DSHOT_CMD_BEACON1
-        || beeperConfig()->dshotBeaconTone > DSHOT_CMD_BEACON5) {
-        beeperConfigMutable()->dshotBeaconTone = DSHOT_CMD_BEACON1;
-    }
-#endif
 #endif
 
     bool configuredMotorProtocolDshot = checkMotorProtocolDshot(&motorConfig()->dev);

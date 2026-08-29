@@ -798,8 +798,8 @@ static bool mspCommonProcessOutCommand(int16_t cmdMSP, sbuf_t *dst, mspPostProce
 #ifdef USE_BEEPER
     case MSP_BEEPER_CONFIG:
         sbufWriteU32(dst, beeperConfig()->beeper_off_flags);
-        sbufWriteU8(dst, beeperConfig()->dshotBeaconTone);
-        sbufWriteU32(dst, beeperConfig()->dshotBeaconOffFlags);
+        sbufWriteU8(dst, 0);   // was dshotBeaconTone
+        sbufWriteU32(dst, 0);  // was dshotBeaconOffFlags
         break;
 #endif
 
@@ -3472,10 +3472,10 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
     case MSP_SET_BEEPER_CONFIG:
         beeperConfigMutable()->beeper_off_flags = sbufReadU32(src);
         if (sbufBytesRemaining(src) >= 1) {
-            beeperConfigMutable()->dshotBeaconTone = sbufReadU8(src);
+            sbufReadU8(src);   // was dshotBeaconTone
         }
         if (sbufBytesRemaining(src) >= 4) {
-            beeperConfigMutable()->dshotBeaconOffFlags = sbufReadU32(src);
+            sbufReadU32(src);  // was dshotBeaconOffFlags
         }
         break;
 #endif

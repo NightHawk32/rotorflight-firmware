@@ -24,11 +24,6 @@
 
 #define BEEPER_GET_FLAG(mode) (1 << (mode - 1))
 
-#ifdef USE_DSHOT
-#define DSHOT_BEACON_GUARD_DELAY_US 1200000  // Time to separate dshot beacon and armining/disarming events
-                                             // to prevent interference with motor direction commands
-#endif
-
 typedef enum {
     // IMPORTANT: the order of the elements should be preserved for backwards compatibility with the configurator.
     BEEPER_SILENCE = 0,             // Silence, see beeperSilence()
@@ -85,10 +80,6 @@ typedef enum {
     | BEEPER_GET_FLAG(BEEPER_ARMING_GPS_NO_FIX) \
     )
 
-#define DSHOT_BEACON_ALLOWED_MODES ( \
-    BEEPER_GET_FLAG(BEEPER_RX_LOST) \
-    | BEEPER_GET_FLAG(BEEPER_RX_SET) )
-
 void beeper(beeperMode_e mode);
 void beeperSilence(void);
 void beeperUpdate(timeUs_t currentTimeUs);
@@ -100,4 +91,3 @@ uint32_t beeperModeMaskForTableIndex(int idx);
 const char *beeperNameForTableIndex(int idx);
 int beeperTableEntryCount(void);
 bool isBeeperOn(void);
-timeUs_t getLastDshotBeaconCommandTimeUs(void);

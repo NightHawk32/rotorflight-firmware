@@ -496,13 +496,6 @@ void tryArm(void)
 
         const timeUs_t currentTimeUs = micros();
 
-#ifdef USE_DSHOT
-        if (currentTimeUs - getLastDshotBeaconCommandTimeUs() < DSHOT_BEACON_GUARD_DELAY_US) {
-            armingDelayed = ARMING_DELAYED;
-            return;
-        }
-#endif
-
 #ifdef USE_OSD
         osdSuppressStats(false);
 #endif
