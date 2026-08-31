@@ -60,13 +60,21 @@ typedef struct {
 static FAST_DATA_ZERO_INIT posHoldState_t ph;
 
 
+// True while the controller is engaged and producing valid output.  When this
+// is false posHoldAngle[] is zero and leveling.c must fall back to normal
+// stick-driven angle control so the pilot never loses authority.
+bool posHoldIsActive(void)
+{
+    return ph.active;
+}
+
 void posHoldUpdate(void)
 {
     // Clear output every cycle; only fill it when mode is active and valid
     posHoldAngle[AI_ROLL]  = 0;
     posHoldAngle[AI_PITCH] = 0;
 
-    if (!FLIGHT_MODE(POSHOLD_MODE)) {
+    if (!ARMING_FLAG(ARMED) || !FLIGHT_MODE(POSHOLD_MODE)) {
         ph.active = false;
         return;
     }
@@ -106,14 +114,17 @@ void posHoldUpdate(void)
         bodyForwardRate = sign * rate * ph.maxHorizSpeed;
     }
 
+    // Heading rotation between the body frame (forward/right) and the
+    // earth frame (North/East).  Note this 2x2 is its own inverse, so the
+    // same cos/sin pair is used in both directions below.
+    const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
+    const float cosYaw = cos_approx(yawRad);
+    const float sinYaw = sin_approx(yawRad);
+
     if (bodyRightRate != 0.0f || bodyForwardRate != 0.0f) {
         // Rotate body-frame (right, forward) stick rates into earth-frame
         // (East, North) using the current heading, so the hold target moves
         // in the direction the pilot is actually commanding regardless of yaw.
-        const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
-        const float cosYaw = cos_approx(yawRad);
-        const float sinYaw = sin_approx(yawRad);
-
         const float eastRate  = bodyForwardRate * sinYaw + bodyRightRate * cosYaw;
         const float northRate = bodyForwardRate * cosYaw - bodyRightRate * sinYaw;
 
@@ -129,22 +140,30 @@ void posHoldUpdate(void)
     float velCmdY = constrainf(ph.Kp_pos * posErrY, -ph.maxHorizSpeed, ph.maxHorizSpeed);
 
     // --- Inner loop: velocity error → angle command ---
-    const float velErrX = velCmdX - getVelocityXCms();
-    const float velErrY = velCmdY - getVelocityYCms();
+    // The errors are earth-frame (East/North) but the tilt command is
+    // body-frame (roll = right, pitch = forward), so rotate by the current
+    // heading first.  Without this the controller only pushes in the right
+    // direction while pointing North, and inverts near a South heading.
+    const float velErrEast  = velCmdX - getVelocityXCms();
+    const float velErrNorth = velCmdY - getVelocityYCms();
 
-    float angleDegRoll  = constrainf(ph.Kp_vel * velErrX, -ph.maxTiltDeg, ph.maxTiltDeg);
-    float angleDegPitch = constrainf(ph.Kp_vel * velErrY, -ph.maxTiltDeg, ph.maxTiltDeg);
+    const float velErrFwd   = velErrEast * sinYaw + velErrNorth * cosYaw;
+    const float velErrRight = velErrEast * cosYaw - velErrNorth * sinYaw;
+
+    // Rotorflight level-mode convention: positive roll angle = right,
+    // positive pitch angle = nose down = forward (attitude.values.pitch is
+    // negative nose-up), so both map directly onto the body-frame errors.
+    float angleDegRoll  = constrainf(ph.Kp_vel * velErrRight, -ph.maxTiltDeg, ph.maxTiltDeg);
+    float angleDegPitch = constrainf(ph.Kp_vel * velErrFwd,   -ph.maxTiltDeg, ph.maxTiltDeg);
 
     // Convert to centidegrees and write to output
     posHoldAngle[AI_ROLL]  = (int32_t)(angleDegRoll  * 100.0f);
     posHoldAngle[AI_PITCH] = (int32_t)(angleDegPitch * 100.0f);
 
-    DEBUG(POSHOLD, 0, (int32_t)posErrX);
-    DEBUG(POSHOLD, 1, (int32_t)posErrY);
-    DEBUG(POSHOLD, 2, posHoldAngle[AI_ROLL]);
-    DEBUG(POSHOLD, 3, posHoldAngle[AI_PITCH]);
-    DEBUG(POSHOLD, 4, (int32_t)ph.holdX);
-    DEBUG(POSHOLD, 5, (int32_t)ph.holdY);
+    // positionUpdate() runs earlier in the same cycle and owns DEBUG_POSHOLD
+    // 0..5 (estimated position/velocity); only 6 and 7 are ours to write.
+    DEBUG(POSHOLD, 6, posHoldAngle[AI_ROLL]);
+    DEBUG(POSHOLD, 7, posHoldAngle[AI_PITCH]);
 }
 
 void INIT_CODE posHoldInitProfile(const pidProfile_t *pidProfile)
