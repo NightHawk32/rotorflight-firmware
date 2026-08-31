@@ -152,8 +152,13 @@ static float calcLevelErrorAngle(int axis, float angleLimit)
     angle += gpsRescueAngle[axis] / 100.0f; // ANGLE IS IN CENTIDEGREES
 #endif
 #ifdef USE_OPTICAL_FLOW
-    if (FLIGHT_MODE(POSHOLD_MODE)) {
-        angle += posHoldAngle[axis] / 100.0f; // ANGLE IS IN CENTIDEGREES
+    if (posHoldIsActive()) {
+        // In position hold the sticks are a velocity command that moves the
+        // hold target (see poshold.c), so the direct stick-to-angle term above
+        // must not also be applied - otherwise the pilot's tilt and the
+        // position loop fight each other.  When the controller is not engaged
+        // posHoldAngle[] is zero and normal stick control is left untouched.
+        angle = posHoldAngle[axis] / 100.0f; // ANGLE IS IN CENTIDEGREES
     }
 #endif
     angle = constrainf(angle, -angleLimit, angleLimit);
