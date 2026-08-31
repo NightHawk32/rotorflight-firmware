@@ -52,6 +52,9 @@
 // Configuration payload length
 #define MICOLINK_CONFIG_PAYLOAD_LEN  18
 
+// Sensor's maximum rated range (mm); anything above is nonsense
+#define MICROLINK_MAX_DISTANCE_MM    12000
+
 // Parser states
 typedef enum {
     MICOLINK_STATE_IDLE = 0,
@@ -102,6 +105,14 @@ typedef struct {
     uint32_t distance;       // LIDAR distance in mm
     uint8_t strength;        // LIDAR signal strength
     bool newData;
+
+    // Frame freshness. frameCount increments on every successfully decoded
+    // range-sensor frame; lastFrameMs is when that happened.  Consumers that
+    // do not share the newData flag (the rangefinder driver) use these to tell
+    // a genuinely new sample from a stale one - without them a dead serial
+    // link looks like a perfectly steady distance reading forever.
+    uint32_t frameCount;
+    timeMs_t lastFrameMs;
     
     micolinkMsg_t msg;
     serialPort_t *serialPort;
@@ -144,16 +155,24 @@ static void micolinkProcessMessage(const micolinkMsg_t *msg)
             // True flow (cm/s) = flow_vel_x * distance(m)
             // Distance is in mm, so distance(m) = distance / 1000
             if (payload.distance > 0) {
-                // Scale flow by distance: flowX = flow_vel_x * (distance_mm / 1000)
-                microlinkData.flowX = (payload.flow_vel_x * (int32_t)payload.distance) / 1000;
-                microlinkData.flowY = (payload.flow_vel_y * (int32_t)payload.distance) / 1000;
+                // Scale flow by distance: flowX = flow_vel_x * (distance_mm / 1000).
+                // The product is clamped: at the 12m maximum range a large
+                // flow_vel would otherwise wrap the int16_t result and flip the
+                // sign of the velocity fed to the position estimator.
+                const int32_t dist = (int32_t)MIN(payload.distance, (uint32_t)MICROLINK_MAX_DISTANCE_MM);
+                const int32_t fx = ((int32_t)payload.flow_vel_x * dist) / 1000;
+                const int32_t fy = ((int32_t)payload.flow_vel_y * dist) / 1000;
+                microlinkData.flowX = constrain(fx, INT16_MIN, INT16_MAX);
+                microlinkData.flowY = constrain(fy, INT16_MIN, INT16_MAX);
             } else {
                 // No valid distance, can't scale flow properly
                 microlinkData.flowX = 0;
                 microlinkData.flowY = 0;
             }
             microlinkData.quality = payload.flow_quality;
-            
+
+            microlinkData.frameCount++;
+            microlinkData.lastFrameMs = millis();
             microlinkData.newData = true;
         }
     }
@@ -238,6 +257,8 @@ static void opticalFlowMicrolinkInit(opticalFlowDev_t *dev)
     microlinkData.distance = 0;
     microlinkData.strength = 0;
     microlinkData.newData = false;
+    microlinkData.frameCount = 0;
+    microlinkData.lastFrameMs = 0;
     microlinkData.msg.state = MICOLINK_STATE_IDLE;
     microlinkData.msg.payload_cnt = 0;
     
@@ -313,6 +334,19 @@ uint32_t opticalFlowMicrolinkGetDistance(void)
 uint8_t opticalFlowMicrolinkGetStrength(void)
 {
     return microlinkData.strength;
+}
+
+// Number of range-sensor frames decoded since boot. Consumers latch this to
+// detect whether the value they are reading is a new sample or a repeat.
+uint32_t opticalFlowMicrolinkGetFrameCount(void)
+{
+    return microlinkData.frameCount;
+}
+
+// Timestamp of the most recently decoded range-sensor frame (0 = never).
+timeMs_t opticalFlowMicrolinkGetLastFrameMs(void)
+{
+    return microlinkData.lastFrameMs;
 }
 
 // Send configuration to MicroLink sensor

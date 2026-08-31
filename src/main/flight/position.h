@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 void positionInit(void);
 void positionUpdate(void);
 
@@ -25,6 +27,9 @@ float getVario(void);
 
 int getEstimatedAltitudeCm(void);
 int getEstimatedVarioCms(void);
+
+// False when the Z estimate is stale; getAltitude() then returns 0.
+bool isAltitudeValid(void);
 
 // AGL altitude from rangefinder (meters)
 #ifdef USE_RANGEFINDER
