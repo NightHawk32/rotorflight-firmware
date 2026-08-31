@@ -37,6 +37,8 @@
 #define MICROLINK_RANGE_MIN 40      // 4cm minimum range
 #define MICROLINK_RANGE_MAX 12000   // 12m maximum range (12000mm)
 #define MICROLINK_DETECTION_CONE_DECIDEGREES 900  // 90 degrees
+// The module streams at 50Hz; no frame for this long means the link is dead
+#define MICROLINK_FRAME_TIMEOUT_MS  200
 
 static void rangefinderMicrolinkInit(rangefinderDev_t *dev)
 {
@@ -55,7 +57,26 @@ static void rangefinderMicrolinkUpdate(rangefinderDev_t *dev)
 static int32_t rangefinderMicrolinkRead(rangefinderDev_t *dev)
 {
     UNUSED(dev);
-    
+
+    // The shared parser lives in the optical-flow driver, so this read() is
+    // polled independently of frame arrival.  Report NO_NEW_DATA for a repeat
+    // of a sample already consumed, and HARDWARE_FAILURE once the stream has
+    // stopped - otherwise sensors/rangefinder.c keeps refreshing its
+    // last-valid-response timestamp and a dead lidar reads as a perfectly
+    // healthy, perfectly constant altitude.
+    static uint32_t lastFrameCount = 0;
+
+    const uint32_t frameCount = opticalFlowMicrolinkGetFrameCount();
+
+    if (frameCount == lastFrameCount) {
+        const timeMs_t lastFrameMs = opticalFlowMicrolinkGetLastFrameMs();
+        if (lastFrameMs == 0 || (millis() - lastFrameMs) > MICROLINK_FRAME_TIMEOUT_MS) {
+            return RANGEFINDER_HARDWARE_FAILURE;
+        }
+        return RANGEFINDER_NO_NEW_DATA;
+    }
+    lastFrameCount = frameCount;
+
     // Get distance from optical flow driver (in mm)
     uint32_t distanceMm = opticalFlowMicrolinkGetDistance();
     
@@ -65,15 +86,12 @@ static int32_t rangefinderMicrolinkRead(rangefinderDev_t *dev)
         return RANGEFINDER_OUT_OF_RANGE;
     }
     
-    // Convert mm to cm
-    int32_t distanceCm = distanceMm / 10;
-    
-    // Check if within valid range
-    if (distanceCm < (MICROLINK_RANGE_MIN / 10) || distanceCm > (MICROLINK_RANGE_MAX / 10)) {
+    // Range-check in mm before the lossy conversion to cm
+    if (distanceMm < MICROLINK_RANGE_MIN || distanceMm > MICROLINK_RANGE_MAX) {
         return RANGEFINDER_OUT_OF_RANGE;
     }
-    
-    return distanceCm;
+
+    return (int32_t)(distanceMm / 10);
 }
 
 // Get MicroLink signal strength (quality indicator)
