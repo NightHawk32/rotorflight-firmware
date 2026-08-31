@@ -38,7 +38,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
     .filter_process_denom = FILTER_PROCESS_DENOM_DEFAULT,
 );
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 0);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 1);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -136,6 +136,7 @@ void resetPidProfile(pidProfile_t *pidProfile)
         // Position hold defaults
         .poshold.pos_p_gain = 50,       // position → velocity (0.5 m/s per m error)
         .poshold.vel_p_gain = 30,       // velocity → angle  (0.3 deg per cm/s error)
+        .poshold.vel_i_gain = 10,       // wind trim, ~3s integral time at the default P
         .poshold.max_horiz_speed = 200, // 200 cm/s
         .poshold.max_tilt_angle = 150,  // 15.0 degrees
         .poshold.stick_deadband = 100,  // 10% deadband on roll/pitch stick

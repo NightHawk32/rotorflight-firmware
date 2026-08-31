@@ -1234,6 +1234,7 @@ const clivalue_t valueTable[] = {
 #ifdef USE_OPTICAL_FLOW
     { "poshold_pos_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.pos_p_gain) },
     { "poshold_vel_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.vel_p_gain) },
+    { "poshold_vel_i_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.vel_i_gain) },
     { "poshold_max_horiz_speed",    VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.max_horiz_speed) },
     { "poshold_max_tilt_angle",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 450 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.max_tilt_angle) },
     { "poshold_stick_deadband",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.stick_deadband) },

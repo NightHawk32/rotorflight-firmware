@@ -47,6 +47,7 @@ typedef struct {
     // Config
     float   Kp_pos;         // Position error (cm) → velocity (cm/s)
     float   Kp_vel;         // Velocity error (cm/s) → angle (degrees)
+    float   Ki_vel;         // Velocity error (cm/s) → angle rate (deg per cycle)
     float   maxHorizSpeed;  // cm/s
     float   maxTiltDeg;     // degrees
     float   stickDeadband;  // fraction 0..1
@@ -54,6 +55,8 @@ typedef struct {
     // State
     float   holdX;          // hold target East  (cm)
     float   holdY;          // hold target North (cm)
+    float   iTermEast;      // wind trim, earth frame (degrees of tilt)
+    float   iTermNorth;
     bool    active;
 } posHoldState_t;
 
@@ -89,6 +92,8 @@ void posHoldUpdate(void)
     if (!ph.active) {
         ph.holdX = getPositionXCm();
         ph.holdY = getPositionYCm();
+        ph.iTermEast = 0;
+        ph.iTermNorth = 0;
         ph.active = true;
     }
 
@@ -140,21 +145,49 @@ void posHoldUpdate(void)
     float velCmdY = constrainf(ph.Kp_pos * posErrY, -ph.maxHorizSpeed, ph.maxHorizSpeed);
 
     // --- Inner loop: velocity error → angle command ---
-    // The errors are earth-frame (East/North) but the tilt command is
-    // body-frame (roll = right, pitch = forward), so rotate by the current
-    // heading first.  Without this the controller only pushes in the right
-    // direction while pointing North, and inverts near a South heading.
     const float velErrEast  = velCmdX - getVelocityXCms();
     const float velErrNorth = velCmdY - getVelocityYCms();
 
-    const float velErrFwd   = velErrEast * sinYaw + velErrNorth * cosYaw;
-    const float velErrRight = velErrEast * cosYaw - velErrNorth * sinYaw;
+    // P + I, accumulated in the EARTH frame.  Holding station in wind needs a
+    // steady tilt into the wind; P alone can only produce that from a standing
+    // position error, so a P-only cascade parks the aircraft permanently
+    // downwind of the target.  The integrator supplies that trim instead, and
+    // because velocity error is only zero when the position error is zero, it
+    // drives the steady-state position error to zero.
+    //
+    // Earth-referenced (rather than roll/pitch-referenced) so the learned wind
+    // trim survives a yaw change instead of being re-learned after every
+    // pirouette.
+    const float tiltEast  = ph.Kp_vel * velErrEast  + ph.iTermEast;
+    const float tiltNorth = ph.Kp_vel * velErrNorth + ph.iTermNorth;
+
+    // The demand is earth-frame (East/North) but the tilt command is
+    // body-frame (roll = right, pitch = forward), so rotate by the current
+    // heading.  Without this the controller only pushes in the right
+    // direction while pointing North, and inverts near a South heading.
+    const float tiltFwd   = tiltEast * sinYaw + tiltNorth * cosYaw;
+    const float tiltRight = tiltEast * cosYaw - tiltNorth * sinYaw;
 
     // Rotorflight level-mode convention: positive roll angle = right,
     // positive pitch angle = nose down = forward (attitude.values.pitch is
-    // negative nose-up), so both map directly onto the body-frame errors.
-    float angleDegRoll  = constrainf(ph.Kp_vel * velErrRight, -ph.maxTiltDeg, ph.maxTiltDeg);
-    float angleDegPitch = constrainf(ph.Kp_vel * velErrFwd,   -ph.maxTiltDeg, ph.maxTiltDeg);
+    // negative nose-up), so both map directly onto the body-frame demand.
+    float angleDegRoll  = constrainf(tiltRight, -ph.maxTiltDeg, ph.maxTiltDeg);
+    float angleDegPitch = constrainf(tiltFwd,   -ph.maxTiltDeg, ph.maxTiltDeg);
+
+    // Anti-windup: stop accumulating once the tilt command is clipped, and
+    // bound the trim itself to the configured tilt limit.
+    if (angleDegRoll == tiltRight && angleDegPitch == tiltFwd) {
+        ph.iTermEast  += ph.Ki_vel * velErrEast;
+        ph.iTermNorth += ph.Ki_vel * velErrNorth;
+
+        const float iMag = sqrtf(ph.iTermEast * ph.iTermEast +
+                                 ph.iTermNorth * ph.iTermNorth);
+        if (iMag > ph.maxTiltDeg) {
+            const float scale = ph.maxTiltDeg / iMag;
+            ph.iTermEast  *= scale;
+            ph.iTermNorth *= scale;
+        }
+    }
 
     // Convert to centidegrees and write to output
     posHoldAngle[AI_ROLL]  = (int32_t)(angleDegRoll  * 100.0f);
@@ -172,6 +205,8 @@ void INIT_CODE posHoldInitProfile(const pidProfile_t *pidProfile)
 
     ph.Kp_pos       = cfg->pos_p_gain / 100.0f;
     ph.Kp_vel       = cfg->vel_p_gain / 100.0f;
+    // Per-cycle increment: deg of tilt per (cm/s of error) per second, x dT
+    ph.Ki_vel       = (cfg->vel_i_gain / 100.0f) * pidGetDT();
     ph.maxHorizSpeed = cfg->max_horiz_speed;
     ph.maxTiltDeg   = cfg->max_tilt_angle / 10.0f;
     ph.stickDeadband = cfg->stick_deadband / 1000.0f;
@@ -179,6 +214,8 @@ void INIT_CODE posHoldInitProfile(const pidProfile_t *pidProfile)
     ph.active = false;
     ph.holdX = 0;
     ph.holdY = 0;
+    ph.iTermEast = 0;
+    ph.iTermNorth = 0;
 }
 
 #endif // USE_OPTICAL_FLOW
