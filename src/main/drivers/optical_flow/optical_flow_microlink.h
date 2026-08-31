@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "common/time.h"
+
 #include "drivers/optical_flow/optical_flow.h"
 
 // MicroLink protocol types
@@ -47,6 +49,11 @@ bool opticalFlowMicrolinkDetect(opticalFlowDev_t *dev);
 // Get LIDAR/rangefinder data from MicroLink sensor
 uint32_t opticalFlowMicrolinkGetDistance(void);
 uint8_t opticalFlowMicrolinkGetStrength(void);
+
+// Frame freshness: frameCount increments once per decoded range-sensor frame,
+// lastFrameMs is when the last one arrived (0 = none yet).
+uint32_t opticalFlowMicrolinkGetFrameCount(void);
+timeMs_t opticalFlowMicrolinkGetLastFrameMs(void);
 
 // Configure MicroLink sensor
 bool opticalFlowMicrolinkSetConfig(const microlinkConfig_t *config);

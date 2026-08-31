@@ -25,5 +25,6 @@
 // (same convention as gpsRescueAngle[])
 extern int32_t posHoldAngle[2]; // [AI_ROLL, AI_PITCH]
 
+bool posHoldIsActive(void);
 void posHoldUpdate(void);
 void posHoldInitProfile(const pidProfile_t *pidProfile);

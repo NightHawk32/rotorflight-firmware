@@ -131,6 +131,7 @@ typedef struct {
     // Z-axis Kalman filter (cm, relative to the arm-point / power-up baseline)
     positionKalman_t kfUp;
     timeMs_t    lastZMeasMs;
+    bool        altValid;
 
 #ifdef USE_RANGEFINDER
     float       rfAltOffset;    // aligns rangefinder AGL to the KF frame (cm)
@@ -202,6 +203,16 @@ int getEstimatedAltitudeCm(void)
 int getEstimatedVarioCms(void)
 {
     return lrintf(alt.variometer * 100);
+}
+
+/*
+ * False when no Z measurement has reached the filter recently.  getAltitude()
+ * then reads 0, which is indistinguishable from genuinely being at the arm
+ * altitude - closed-loop consumers must check this before trusting it.
+ */
+bool isAltitudeValid(void)
+{
+    return alt.altValid;
 }
 
 #ifdef USE_RANGEFINDER
@@ -354,7 +365,9 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
         alt.baroAltOffset += CROSS_CAL_ALPHA * (idealOffset - alt.baroAltOffset);
     }
 
-    if (alt.lastZMeasMs != 0 && (nowMs - alt.lastZMeasMs) < Z_MEASUREMENT_TIMEOUT_MS) {
+    alt.altValid = (alt.lastZMeasMs != 0 && (nowMs - alt.lastZMeasMs) < Z_MEASUREMENT_TIMEOUT_MS);
+
+    if (alt.altValid) {
         alt.altitude = kalmanGetPosition(&alt.kfUp) / 100.0f;
         alt.variometer = kalmanGetVelocity(&alt.kfUp) / 100.0f;
     }
@@ -373,9 +386,15 @@ static void estimatorResetXY(void)
     kalmanInit(&posxy.kfNorth, 0, 0, INITIAL_POS_VAR, INITIAL_VEL_VAR,
                positionConfig()->est_q_accel_xy);
     posxy.lastFlowFuseMs = 0;
+    posxy.lastFlowSampleMs = 0;
+    posxy.posX = 0;
+    posxy.posY = 0;
+    posxy.velX = 0;
+    posxy.velY = 0;
     posxy.valid = false;
 #ifdef USE_GPS
     posxy.lastGpsFuseMs = 0;
+    posxy.lastGpsStampMs = 0;
     posxy.originSet = false;
 #endif
 }
@@ -632,7 +651,8 @@ void positionUpdate(void)
     // (used by OSD, blackbox, telemetry, etc.) is terrain-relative: it comes
     // straight from the rangefinder AGL estimate rather than the KF output.
     if (alt.source == ALT_SOURCE_LIDAR_ONLY) {
-        if (isAGLAltitudeValid()) {
+        alt.altValid = isAGLAltitudeValid();
+        if (alt.altValid) {
             alt.altitude = agl.aglAlt;
             alt.variometer = agl.aglVario;
         }
@@ -659,8 +679,7 @@ void positionUpdate(void)
     DEBUG(POSHOLD, 3, (int32_t)posxy.velY);
     DEBUG(POSHOLD, 4, posxy.valid ? 1 : 0);
     DEBUG(POSHOLD, 5, opticalFlowGetLatestQuality());
-    DEBUG(POSHOLD, 6, (int32_t)sqrtf(kalmanGetPositionVariance(&posxy.kfEast)));
-    DEBUG(POSHOLD, 7, (int32_t)sqrtf(kalmanGetPositionVariance(&alt.kfUp)));
+    // 6 and 7 are written by posHoldUpdate() later in the same cycle.
 #endif
 }
 
@@ -677,6 +696,7 @@ void INIT_CODE positionInit(void)
     kalmanInit(&alt.kfUp, 0, 0, INITIAL_POS_VAR, INITIAL_VEL_VAR,
                positionConfig()->est_q_accel_z);
     alt.lastZMeasMs = 0;
+    alt.altValid = false;
 
     estimatorLastUs = 0;
     estimatorWasArmed = false;

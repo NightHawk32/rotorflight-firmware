@@ -67,6 +67,8 @@ typedef struct {
     // State
     float       targetAlt;      // hold target in meters
     float       velIterm;       // velocity integrator
+    float       lastAlt;        // previous cycle's measurement (frame tracking)
+    bool        usingAgl;       // which frame targetAlt is expressed in
     bool        active;         // was mode active last cycle (for init)
 } altHoldState_t;
 
@@ -77,6 +79,23 @@ static FAST_DATA_ZERO_INIT altHoldState_t ah;
  * Determine which altitude source to use.
  * Prefer LIDAR AGL when valid, fall back to baro/GPS.
  */
+static bool usingAglSource(void)
+{
+#ifdef USE_RANGEFINDER
+    return isAGLAltitudeValid();
+#else
+    return false;
+#endif
+}
+
+// True when the altitude actually being fed to the loop is trustworthy.
+// getAltitude() returns 0 when the Z estimate is stale, which would otherwise
+// look like a huge altitude error and command full collective.
+static bool altSourceIsValid(void)
+{
+    return usingAglSource() || isAltitudeValid();
+}
+
 static float getCurrentAlt(void)
 {
 #ifdef USE_RANGEFINDER
@@ -109,11 +128,32 @@ void altHoldUpdate(void)
         return;
     }
 
+    const bool usingAgl = usingAglSource();
+    const float currentAlt = getCurrentAlt();
+
     // On first entry: latch current altitude as target
     if (!ah.active) {
-        ah.targetAlt = getCurrentAlt();
+        ah.targetAlt = currentAlt;
         ah.velIterm = 0;
+        ah.usingAgl = usingAgl;
+        ah.lastAlt = currentAlt;
         ah.active = true;
+    }
+
+    // The AGL (terrain-relative) and baro/GPS (arm-relative) sources live in
+    // different frames.  When the loop switches between them mid-flight, shift
+    // the target by the frame offset so the altitude error - and therefore the
+    // collective - stays continuous instead of stepping by the offset.
+    if (usingAgl != ah.usingAgl) {
+        ah.targetAlt += currentAlt - ah.lastAlt;
+        ah.usingAgl = usingAgl;
+    }
+    ah.lastAlt = currentAlt;
+
+    if (!altSourceIsValid()) {
+        // No usable altitude: freeze the target rather than integrating the
+        // stick into a target the loop cannot track.
+        return;
     }
 
     // RC collective stick: -1.0 (full down) to +1.0 (full up)
@@ -141,10 +181,17 @@ float altHoldApply(float collective)
         return collective;
     }
 
-    const float currentAlt  = getCurrentAlt();
-    const float currentVario = getCurrentVario();
     const float tilt         = getCosTiltAngle();
     const float tiltFactor   = tilt * tilt; // gravity compensation
+
+    if (!altSourceIsValid()) {
+        // Hold the last trimmed hover point; do not close the loop on a
+        // stale/absent altitude estimate.
+        return constrainf((ah.hoverCollective + ah.velIterm) * tiltFactor, 0.0f, 1000.0f);
+    }
+
+    const float currentAlt   = getCurrentAlt();
+    const float currentVario = getCurrentVario();
 
     // Outer loop: altitude error → velocity setpoint
     const float altError = ah.targetAlt - currentAlt;
@@ -157,8 +204,11 @@ float altHoldApply(float collective)
     const float Pterm = ah.Kp_vel * velError;
     const float Dterm = ah.Kd_vel * currentVario; // D on measurement (no derivative kick)
 
+    // The integrator must be able to trim in both directions: clamped to
+    // [0, hover] it could only ever add collective, so an over-estimated
+    // hover_collective would leave a permanent climb it cannot cancel.
     ah.velIterm = constrainf(ah.velIterm + ah.Ki_vel * velError,
-                             0.0f, ah.hoverCollective);
+                             -ah.hoverCollective, ah.hoverCollective);
 
     float output = (ah.hoverCollective + Pterm + ah.velIterm + Dterm) * tiltFactor;
     output = constrainf(output, 0.0f, 1000.0f);
@@ -186,4 +236,6 @@ void INIT_CODE altHoldInitProfile(const pidProfile_t *pidProfile)
     ah.active   = false;
     ah.velIterm = 0;
     ah.targetAlt = 0;
+    ah.lastAlt = 0;
+    ah.usingAgl = false;
 }
