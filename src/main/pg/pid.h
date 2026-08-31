@@ -114,6 +114,7 @@ typedef struct {
 typedef struct {
     uint16_t    pos_p_gain;         // Position → velocity P gain
     uint16_t    vel_p_gain;         // Velocity → angle P gain
+    uint16_t    vel_i_gain;         // Velocity → angle I gain (wind trim)
     uint16_t    max_horiz_speed;    // Max horizontal speed cm/s (e.g., 200)
     uint16_t    max_tilt_angle;     // Max tilt angle in degrees×10 (e.g., 150 = 15°)
     uint16_t    stick_deadband;     // Roll/Pitch stick deadband 0-500

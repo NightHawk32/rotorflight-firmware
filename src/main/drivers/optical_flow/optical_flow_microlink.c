@@ -52,8 +52,6 @@
 // Configuration payload length
 #define MICOLINK_CONFIG_PAYLOAD_LEN  18
 
-// Sensor's maximum rated range (mm); anything above is nonsense
-#define MICROLINK_MAX_DISTANCE_MM    12000
 
 // Parser states
 typedef enum {
@@ -98,9 +96,16 @@ typedef struct __attribute__((packed)) {
 } micolinkPayloadRangeSensor_t;
 
 // Driver data
+//
+// flowX/flowY are the module's raw angular flow in its native "cm/s at 1m"
+// units - deliberately NOT pre-scaled by the lidar distance here.  Converting
+// flow to a ground velocity needs the vehicle's tilt as well as a range, and
+// the correct range is the tilt-compensated AGL height rather than the raw
+// slant reading, so that conversion lives in flight/position.c where the
+// attitude and the filtered/range-gated rangefinder altitude are available.
 typedef struct {
-    int16_t flowX;          // Flow in X direction (scaled to cm/s)
-    int16_t flowY;          // Flow in Y direction (scaled to cm/s)
+    int16_t flowX;          // Raw flow, X / forward (cm/s @ 1m)
+    int16_t flowY;          // Raw flow, Y / left    (cm/s @ 1m)
     uint8_t quality;
     uint32_t distance;       // LIDAR distance in mm
     uint8_t strength;        // LIDAR signal strength
@@ -151,24 +156,11 @@ static void micolinkProcessMessage(const micolinkMsg_t *msg)
             microlinkData.distance = payload.distance;
             microlinkData.strength = payload.strength;
             
-            // Convert optical flow data: flow_vel is in cm/s@1m, need to scale by actual distance
-            // True flow (cm/s) = flow_vel_x * distance(m)
-            // Distance is in mm, so distance(m) = distance / 1000
-            if (payload.distance > 0) {
-                // Scale flow by distance: flowX = flow_vel_x * (distance_mm / 1000).
-                // The product is clamped: at the 12m maximum range a large
-                // flow_vel would otherwise wrap the int16_t result and flip the
-                // sign of the velocity fed to the position estimator.
-                const int32_t dist = (int32_t)MIN(payload.distance, (uint32_t)MICROLINK_MAX_DISTANCE_MM);
-                const int32_t fx = ((int32_t)payload.flow_vel_x * dist) / 1000;
-                const int32_t fy = ((int32_t)payload.flow_vel_y * dist) / 1000;
-                microlinkData.flowX = constrain(fx, INT16_MIN, INT16_MAX);
-                microlinkData.flowY = constrain(fy, INT16_MIN, INT16_MAX);
-            } else {
-                // No valid distance, can't scale flow properly
-                microlinkData.flowX = 0;
-                microlinkData.flowY = 0;
-            }
+            // Raw angular flow, passed through unscaled (see the note on
+            // opticalFlowMicrolinkData_t).  No overflow is possible now that
+            // the distance multiply is gone.
+            microlinkData.flowX = payload.flow_vel_x;
+            microlinkData.flowY = payload.flow_vel_y;
             microlinkData.quality = payload.flow_quality;
 
             microlinkData.frameCount++;

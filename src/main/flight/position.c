@@ -88,6 +88,9 @@
 #define AGL_RELIABILITY_THRESHOLD   0.33f
 // Optical flow quality hard floor (0-255): below this a sample is never fused
 #define FLOW_QUALITY_MIN            50
+// Beyond ~45 deg of tilt the flat-ground flow geometry (and the 1/cos^2 scale
+// factor) stops being trustworthy, so no flow sample is fused at all
+#define FLOW_MIN_COS_TILT           0.707f
 // Maximum dead-reckoning radius (cm) while no absolute (GPS) anchor is active
 #define POSXY_MAX_DEADRECKONING_CM  1000.0f
 
@@ -460,32 +463,57 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
                 0.01f, 1.0f);
             const float flowR = positionConfig()->est_r_flow_vel / qualityNorm;
 
-            // The MicroLink driver outputs body-frame velocity in cm/s, already
-            // scaled by the lidar distance.  Body frame is x-forward, y-left
-            // (FLU, matching rMat's NWU convention); the sensor must be
-            // mounted/configured accordingly - verify signs with the debug
-            // values before first flight.
-            const float bodyFwd  = opticalFlowGetLatestX();
-            const float bodyLeft = opticalFlowGetLatestY();
+            // Flow -> ground velocity.
+            //
+            // The module reports raw angular flow in "cm/s at 1m": the ground
+            // speed the flow would represent if the imaged ground were 1m away
+            // along the sensor's optical axis (body -Z).
+            //
+            // For a sensor tilted by t from vertical over flat ground at
+            // vertical height h, the boresight slant range is D = h/cos(t) and
+            // the angular rate produced by a horizontal velocity v is
+            //
+            //     w = v * cos(t) / D    =>    v = w * D / cos(t) = w * h / cos(t)^2
+            //
+            // so the flow scales with the VERTICAL height and is *divided* by
+            // cos(t)^2.  The previous code scaled by the raw slant range and
+            // then multiplied by cos(t), i.e. it applied cos(t)^2 the wrong
+            // way and was off by cos(t)^4 (-24% at 20 deg of tilt).
+            //
+            // h comes from getAGLAltitude() rather than the driver's raw lidar
+            // reading: it is median-filtered, range-gated and tilt-compensated
+            // in sensors/rangefinder.c, so one bad lidar sample cannot spike
+            // the velocity estimate.
+            const float cosTilt = getCosTiltAngle();
 
-            // Project onto the horizontal plane (remove the tilt-induced
-            // component).  The driver scales by slant range rather than
-            // vertical height; the residual (second-order in tilt) is
-            // absorbed by the measurement noise.
-            const float velFwd   = bodyFwd * cos_approx(DECIDEGREES_TO_RADIANS(attitude.values.pitch));
-            const float velRight = -bodyLeft * cos_approx(DECIDEGREES_TO_RADIANS(attitude.values.roll));
+            if (cosTilt >= FLOW_MIN_COS_TILT) {
+                const float heightM = getAGLAltitude();
+                const float flowScale = heightM / (cosTilt * cosTilt);
 
-            // Rotate heading frame -> earth frame (yaw is compass convention)
-            const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
-            const float cosYaw = cos_approx(yawRad);
-            const float sinYaw = sin_approx(yawRad);
-            const float velEast  = velFwd * sinYaw + velRight * cosYaw;
-            const float velNorth = velFwd * cosYaw - velRight * sinYaw;
+                // Body frame is x-forward, y-left (FLU, matching rMat's NWU
+                // convention); the sensor must be mounted/configured
+                // accordingly - verify signs with the debug values before
+                // first flight.
+                const float velFwd   =  opticalFlowGetLatestX() * flowScale;
+                const float velRight = -opticalFlowGetLatestY() * flowScale;
 
-            kalmanUpdateVelocity(&posxy.kfEast, velEast, flowR);
-            kalmanUpdateVelocity(&posxy.kfNorth, velNorth, flowR);
+                // Rotate heading frame -> earth frame (yaw is compass convention)
+                const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
+                const float cosYaw = cos_approx(yawRad);
+                const float sinYaw = sin_approx(yawRad);
+                const float velEast  = velFwd * sinYaw + velRight * cosYaw;
+                const float velNorth = velFwd * cosYaw - velRight * sinYaw;
 
-            posxy.lastFlowFuseMs = nowMs;
+                kalmanUpdateVelocity(&posxy.kfEast, velEast, flowR);
+                kalmanUpdateVelocity(&posxy.kfNorth, velNorth, flowR);
+
+                posxy.lastFlowFuseMs = nowMs;
+
+                DEBUG(OPTICAL_FLOW, 3, (int32_t)velEast);
+                DEBUG(OPTICAL_FLOW, 4, (int32_t)velNorth);
+                DEBUG(OPTICAL_FLOW, 5, (int32_t)(heightM * 100));
+                DEBUG(OPTICAL_FLOW, 6, (int32_t)(flowScale * 100));
+            }
         }
     }
 
