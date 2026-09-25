@@ -31,6 +31,14 @@ int getEstimatedVarioCms(void);
 // False when the Z estimate is stale; getAltitude() then returns 0.
 bool isAltitudeValid(void);
 
+// Fused Kalman altitude (m, arm-point frame), vario (m/s) and 1-sigma
+// altitude uncertainty (m).  Returns false when the estimate is stale.
+bool getAltitudeEstimate(float *altitudeM, float *varioMs, float *stdDevM);
+
+// Baro downwash model state (for diagnostics)
+float getBaroBias(void);
+float getBaroDisturbance(void);
+
 // AGL altitude from rangefinder (meters)
 #ifdef USE_RANGEFINDER
 float getAGLAltitude(void);

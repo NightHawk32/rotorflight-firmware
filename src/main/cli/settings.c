@@ -1799,6 +1799,9 @@ const clivalue_t valueTable[] = {
     { "position_est_r_gps_pos",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_gps_pos) },
     { "position_est_r_gps_vel",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_gps_vel) },
     { "position_est_r_flow_vel",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_flow_vel) },
+    { "position_est_r_gps_vvel",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_r_gps_vvel) },
+    { "position_est_q_baro_bias",  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_q_baro_bias) },
+    { "position_baro_downwash_comp", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_POSITION, offsetof(positionConfig_t, baro_downwash_comp) },
 
 // PG_MODE_ACTIVATION_CONFIG
 #if defined(USE_CUSTOM_BOX_NAMES)

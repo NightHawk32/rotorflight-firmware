@@ -76,6 +76,8 @@ extern uint16_t GPS_distanceToHome;        // distance to home point in meters
 extern int16_t GPS_directionToHome;        // direction to home or hol point in degrees
 extern uint32_t GPS_distanceFlownInCm;     // distance flown since armed in centimeters
 extern int16_t GPS_verticalSpeedInCmS;     // vertical speed in cm/s
+extern int32_t GPS_velDownCms;             // Doppler vertical velocity (down positive) in cm/s
+extern bool GPS_velDownValid;              // true once the receiver reports Doppler velD
 extern int16_t GPS_angle[ANGLE_INDEX_COUNT];                // it's the angles that must be applied for GPS correction
 extern float dTnav;             // Delta Time in milliseconds for navigation computations, updated with every good GPS read
 extern float GPS_scaleLonDown;  // this is used to offset the shrinking longitude as we go towards the poles
