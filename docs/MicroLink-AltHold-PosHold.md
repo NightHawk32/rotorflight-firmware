@@ -25,6 +25,7 @@ MicroLink MTF-01/MTF-02 module.
 | Position estimator | `flight/position.c` gained an AGL (rangefinder-based) altitude estimator and an optical-flow dead-reckoning XY position/velocity estimator |
 | New task | `TASK_OPTICAL_FLOW` @ 50 Hz polls/parses the MicroLink UART stream |
 | New debug modes | `DEBUG_OPTICAL_FLOW`, `DEBUG_ALTHOLD`, `DEBUG_POSHOLD` |
+| Hard deck | New training feature (`flight/harddeck.*`, box `HARD DECK`): keeps the helicopter above a set altitude, recovering from any attitude and holding position — see [HardDeck.md](HardDeck.md) |
 | New serial function | `FUNCTION_MICROLINK` (bit 21) — assign a UART to the MicroLink sensor |
 | New PID-profile fields | `pidProfile.althold.*` and `pidProfile.poshold.*` gain/limit structs (see below) |
 
@@ -312,6 +313,15 @@ Test incrementally and always start props-off.
 
 The following issues were identified while documenting the branch and have
 since been fixed in the source:
+
+- **`ALTHOLD`/`POSHOLD` modes could never activate** — the boxes were never
+  enabled in `initActiveBoxIds()` and the RC switch was never mapped onto
+  `ALTHOLD_MODE`/`POSHOLD_MODE` in `processRxModes()`, so both controllers
+  stayed dormant. Both are now wired up like the other flight modes.
+- **Baro downwash / GPS fusion** — the Z estimator now carries a baro-bias
+  state (estimated against GPS altitude, GPS Doppler vertical velocity and the
+  rangefinder), inflates baro noise during rotor transients and fuses GPS
+  once per message. See [HardDeck.md](HardDeck.md#2-altitude-estimation-baro-in-the-downwash-gps-and-imu).
 
 - **CLI/MSP access to `althold.*`/`poshold.*` gains** — added as
   `althold_alt_p_gain`, `poshold_pos_p_gain`, etc. (see

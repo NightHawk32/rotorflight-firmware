@@ -1231,6 +1231,15 @@ const clivalue_t valueTable[] = {
     { "althold_stick_deadband",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.stick_deadband) },
     { "althold_hover_collective",   VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.hover_collective) },
 
+    { "harddeck_altitude",          VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 10000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.altitude) },
+    { "harddeck_arm_margin",        VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.arm_margin) },
+    { "harddeck_recovery_margin",   VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.recovery_margin) },
+    { "harddeck_release_altitude",  VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.release_altitude) },
+    { "harddeck_recovery_accel",    VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 5, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.recovery_accel) },
+    { "harddeck_reaction_time",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 2000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.reaction_time) },
+    { "harddeck_sigma_factor",      VAR_UINT8  | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.sigma_factor) },
+    { "harddeck_use_agl",           VAR_UINT8  | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.use_agl) },
+
 #ifdef USE_OPTICAL_FLOW
     { "poshold_pos_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.pos_p_gain) },
     { "poshold_vel_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.vel_p_gain) },

@@ -129,6 +129,7 @@ typedef enum {
     DEBUG_GYRO_CALIBRATION,
     DEBUG_ALTHOLD,
     DEBUG_POSHOLD,
+    DEBUG_HARDDECK,
     DEBUG_COUNT
 } debugType_e;
 
