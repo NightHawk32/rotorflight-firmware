@@ -118,4 +118,5 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     DEBUG_NAME(GYRO_CALIBRATION),
     DEBUG_NAME(ALTHOLD),
     DEBUG_NAME(POSHOLD),
+    DEBUG_NAME(HARDDECK),
 };

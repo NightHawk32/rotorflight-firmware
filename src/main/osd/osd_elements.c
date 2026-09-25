@@ -139,6 +139,7 @@
 #include "fc/runtime_config.h"
 
 #include "flight/gps_rescue.h"
+#include "flight/harddeck.h"
 #include "flight/position.h"
 #include "flight/imu.h"
 #include "flight/mixer.h"
@@ -917,9 +918,10 @@ static void osdElementFlymode(osdElementParms_t *element)
     //  1. FAILSAFE
     //  2. GPS RESCUE
     //  3. RESCUE
-    //  4. ANGLE
-    //  5. HORIZON
-    //  6. ACRO
+    //  4. HARD DECK (recovering)
+    //  5. ANGLE
+    //  6. HORIZON
+    //  7. ACRO
 
     if (FLIGHT_MODE(FAILSAFE_MODE)) {
         strcpy(element->buff, "FAIL");
@@ -927,6 +929,8 @@ static void osdElementFlymode(osdElementParms_t *element)
         strcpy(element->buff, "HOLD");
     } else if (FLIGHT_MODE(RESCUE_MODE)) {
         strcpy(element->buff, "SAVE");
+    } else if (hardDeckIsIntervening()) {
+        strcpy(element->buff, "DECK");
     } else if (FLIGHT_MODE(ANGLE_MODE)) {
         strcpy(element->buff, "ANGL");
     } else if (FLIGHT_MODE(HORIZON_MODE)) {

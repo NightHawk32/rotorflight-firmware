@@ -38,7 +38,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
     .filter_process_denom = FILTER_PROCESS_DENOM_DEFAULT,
 );
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 1);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 2);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -140,6 +140,15 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .poshold.max_horiz_speed = 200, // 200 cm/s
         .poshold.max_tilt_angle = 150,  // 15.0 degrees
         .poshold.stick_deadband = 100,  // 10% deadband on roll/pitch stick
+        // Hard deck defaults
+        .harddeck.altitude = 100,           // 10 m above the arm point
+        .harddeck.arm_margin = 20,          // arms once above 12 m
+        .harddeck.recovery_margin = 30,     // recovers to 13 m
+        .harddeck.release_altitude = 0,     // release by switch only
+        .harddeck.recovery_accel = 50,      // 5 m/s^2
+        .harddeck.reaction_time = 300,      // 300 ms
+        .harddeck.sigma_factor = 20,        // 2 sigma
+        .harddeck.use_agl = 1,
     );
 }
 

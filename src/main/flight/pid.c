@@ -54,6 +54,7 @@
 #include "flight/mixer.h"
 #include "flight/rescue.h"
 #include "flight/althold.h"
+#include "flight/harddeck.h"
 #ifdef USE_OPTICAL_FLOW
 #include "flight/poshold.h"
 #endif
@@ -720,6 +721,7 @@ void INIT_CODE pidLoadProfile(const pidProfile_t *pidProfile)
 #endif
     rescueInitProfile(pidProfile);
     altHoldInitProfile(pidProfile);
+    hardDeckInitProfile(pidProfile);
 #ifdef USE_OPTICAL_FLOW
     posHoldInitProfile(pidProfile);
 #endif
@@ -839,6 +841,9 @@ static float pidApplySetpoint(uint8_t axis)
 #endif
     // Apply rescue
     setpoint = rescueApply(axis, setpoint);
+
+    // Apply hard deck (overrides everything while recovering)
+    setpoint = hardDeckApply(axis, setpoint);
 #endif
 
     // Save setpoint
@@ -870,6 +875,11 @@ static void pidApplyCollective(void)
 
     // Apply altitude hold (lower priority than rescue)
     collective = altHoldApply(collective);
+
+#ifdef USE_ACC
+    // Apply hard deck (highest priority)
+    collective = hardDeckApply(FD_COLL, collective);
+#endif
 
     pid.collective = collective / 1000;
 }
