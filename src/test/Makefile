@@ -196,6 +196,10 @@ maths_unittest_SRC := \
 streambuf_unittest_SRC := \
 		$(USER_DIR)/common/streambuf.c
 
+harddeck_unittest_SRC := \
+		$(USER_DIR)/flight/harddeck.c \
+		$(USER_DIR)/common/maths.c
+
 
 # This test is disabled due to build errors.
 #motor_output_unittest_SRC := \
