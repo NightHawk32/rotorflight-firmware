@@ -82,6 +82,8 @@ uint16_t GPS_distanceToHome;        // distance to home point in meters
 int16_t GPS_directionToHome;        // direction to home or hol point in degrees
 uint32_t GPS_distanceFlownInCm;     // distance flown since armed in centimeters
 int16_t GPS_verticalSpeedInCmS;     // vertical speed in cm/s
+int32_t GPS_velDownCms;             // Doppler vertical velocity (down positive) in cm/s
+bool GPS_velDownValid;              // true once the receiver reports Doppler velD (UBLOX only)
 float dTnav;             // Delta Time in milliseconds for navigation computations, updated with every good GPS read
 int16_t nav_takeoff_bearing;
 
@@ -1510,6 +1512,8 @@ static bool UBLOX_parse_gps(void)
         gpsSol.speed3d = _buffer.velned.speed_3d;       // cm/s
         gpsSol.groundSpeed = _buffer.velned.speed_2d;    // cm/s
         gpsSol.groundCourse = (uint16_t) (_buffer.velned.heading_2d / 10000);     // Heading 2D deg * 100000 rescaled to deg * 10
+        GPS_velDownCms = _buffer.velned.ned_down;       // cm/s
+        GPS_velDownValid = true;
         _new_speed = true;
         break;
     case MSG_PVT:
@@ -1525,6 +1529,8 @@ static bool UBLOX_parse_gps(void)
         gpsSol.speed3d = (uint16_t) sqrtf(sqf(_buffer.pvt.gSpeed / 10.0f) + sqf(_buffer.pvt.velD / 10.0f));
         gpsSol.groundSpeed = _buffer.pvt.gSpeed / 10;    // cm/s
         gpsSol.groundCourse = (uint16_t) (_buffer.pvt.headMot / 10000);     // Heading 2D deg * 100000 rescaled to deg * 10
+        GPS_velDownCms = _buffer.pvt.velD / 10;         // mm/s -> cm/s
+        GPS_velDownValid = true;
         _new_speed = true;
 #ifdef USE_RTC_TIME
         //set clock, when gps time is available

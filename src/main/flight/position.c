@@ -24,7 +24,8 @@
  * step; sensors correct it with measurement noise (R) scaled by their
  * quality metrics:
  *
- *   Z  <- baro (offset vs arm point), GPS altitude (R scaled by HDOP^2),
+ *   Z  <- baro (offset vs arm point, plus an estimated downwash bias),
+ *         GPS altitude and GPS Doppler vertical velocity (R scaled by HDOP^2),
  *         rangefinder AGL (gated by the reliability ramp)
  *   XY <- GPS position/velocity vs the arm-point origin (R scaled by HDOP^2),
  *         optical flow velocity (R scaled by flow quality)
@@ -33,6 +34,22 @@
  * the rangefinder reliability ramp, the hard flow-quality floor, the
  * dead-reckoning radius clamp (applies only while GPS is not anchoring),
  * and the XY staleness timeout.
+ *
+ * Baro downwash handling (Z axis):
+ *
+ *   The baro sits inside the rotor downwash, so its reading carries a
+ *   pressure error that depends on rotor thrust and changes character when
+ *   the thrust direction reverses (inverted flight).  The Z filter therefore
+ *   carries a third state, the baro bias, which is observable whenever a
+ *   non-drifting anchor (GPS altitude/velocity or rangefinder) is fused.
+ *   On top of that:
+ *     - baro measurement noise is inflated during rotor transients
+ *       (collective steps, high roll/pitch rates) so the IMU and GPS carry
+ *       the estimate through them;
+ *     - a separate bias is remembered for positive and negative collective,
+ *       and swapped in when the thrust direction reverses, so a learned
+ *       inverted-flight offset is not re-learned after every flip;
+ *     - baro innovations beyond a 5-sigma gate are rejected (spikes).
  *
  * The estimator itself runs decimated at 100Hz (matching the fusion rate the
  * ported Q/R constants were tuned for), even though positionUpdate() is
@@ -68,6 +85,7 @@
 #include "sensors/sensors.h"
 #include "sensors/acceleration.h"
 #include "sensors/barometer.h"
+#include "sensors/gyro.h"
 
 #ifdef USE_RANGEFINDER
 #include "sensors/rangefinder.h"
@@ -102,11 +120,29 @@
 #define GRAVITY_CMSS                980.665f
 #define GPS_DOP_MIN_VALID           100         // DOP is stored *100; below 1.0 is unset
 #define GPS_DOP_UNKNOWN_R_SCALE     100.0f      // unknown DOP: 10x stddev, 100x variance
-#define CROSS_CAL_ALPHA             0.0001f     // baro-offset drift correction per tick
 #define Z_MEASUREMENT_TIMEOUT_MS    2000
 #define XY_MEASUREMENT_TIMEOUT_MS   500
 // cm per 1e-7 degree of latitude (111.3195 km per degree)
 #define EARTH_CM_PER_DEG7           1.113195f
+
+// ---- Baro downwash / bias model ----
+#define INITIAL_BIAS_VAR            100.0f      // cm^2: bias is zero at the arm point
+#define BIAS_SWAP_VAR               2500.0f     // cm^2 added when the thrust direction flips
+#define BIAS_FORCE_ACCEPT_VAR       10000.0f    // cm^2 added after a run of gated samples
+#define BARO_GATE_SIGMA             5.0f
+#define BARO_GATE_MAX_REJECTS       50          // 0.5s at 100Hz, then accept unconditionally
+#define BARO_COLL_SLOW_TAU          1.0f        // s, reference for collective transients
+#define BARO_COLL_TRANSIENT_REF     0.25f       // collective change (of +-1) that counts as 1.0
+#define BARO_RATE_REF               360.0f      // deg/s of roll/pitch rate that counts as 1.0
+#define BARO_DISTURBANCE_MAX        5.0f
+#define THRUST_DIR_HYSTERESIS       0.10f       // collective (of +-1) to switch thrust direction
+#define Z_ANCHOR_TIMEOUT_MS         2000
+
+enum {
+    THRUST_UPRIGHT = 0,
+    THRUST_INVERTED,
+    THRUST_DIR_COUNT
+};
 
 
 typedef struct {
@@ -132,9 +168,22 @@ typedef struct {
     filter_t    baroOffsetFilter;
 
     // Z-axis Kalman filter (cm, relative to the arm-point / power-up baseline)
-    positionKalman_t kfUp;
+    altitudeKalman_t kfUp;
     timeMs_t    lastZMeasMs;
+    timeMs_t    lastZAnchorMs;  // last GPS/rangefinder fusion (bias observable)
     bool        altValid;
+    bool        kfValid;        // KF output valid (independent of LIDAR_ONLY override)
+
+    // Baro downwash model
+    float       collSlow;       // slow reference collective for transient detection
+    float       disturbance;    // 0 = calm rotor, larger = baro unreliable
+    float       baroBiasMem[THRUST_DIR_COUNT];
+    uint8_t     thrustDir;
+    uint8_t     baroRejects;
+
+#ifdef USE_GPS
+    uint32_t    lastGpsStampMs;
+#endif
 
 #ifdef USE_RANGEFINDER
     float       rfAltOffset;    // aligns rangefinder AGL to the KF frame (cm)
@@ -216,6 +265,30 @@ int getEstimatedVarioCms(void)
 bool isAltitudeValid(void)
 {
     return alt.altValid;
+}
+
+/*
+ * Raw fused (Kalman) altitude in the arm-point frame, independent of the
+ * LIDAR_ONLY display override, together with its 1-sigma uncertainty.
+ * Safety features (hard deck) use this so they can apply a margin that grows
+ * automatically when the estimate is poor.
+ */
+bool getAltitudeEstimate(float *altitudeM, float *varioMs, float *stdDevM)
+{
+    *altitudeM = altKalmanGetAltitude(&alt.kfUp) / 100.0f;
+    *varioMs = altKalmanGetVelocity(&alt.kfUp) / 100.0f;
+    *stdDevM = sqrtf(fmaxf(altKalmanGetAltitudeVariance(&alt.kfUp), 0.0f)) / 100.0f;
+    return alt.kfValid;
+}
+
+float getBaroBias(void)
+{
+    return altKalmanGetBias(&alt.kfUp) / 100.0f;
+}
+
+float getBaroDisturbance(void)
+{
+    return alt.disturbance;
 }
 
 #ifdef USE_RANGEFINDER
@@ -312,26 +385,133 @@ static bool gpsIsUsable(void)
 }
 #endif
 
+/*
+ * How disturbed the rotor flow around the baro currently is.
+ *
+ * Collective transients (compared with a slow reference) change the downwash
+ * faster than the bias state can follow, and high roll/pitch rates sweep the
+ * fuselage through the rotor wake.  0 means calm, 1 is a quarter-stick
+ * collective step or 360 deg/s of cyclic rate.
+ */
+static float baroDisturbanceUpdate(float dt, float collective)
+{
+    alt.collSlow += (collective - alt.collSlow) * constrainf(dt / BARO_COLL_SLOW_TAU, 0.0f, 1.0f);
+
+    const float collTransient = fabsf(collective - alt.collSlow) / BARO_COLL_TRANSIENT_REF;
+    const float cyclicRate = sqrtf(sq(gyro.gyroADCf[FD_ROLL]) + sq(gyro.gyroADCf[FD_PITCH])) / BARO_RATE_REF;
+
+    return fminf(collTransient + cyclicRate, BARO_DISTURBANCE_MAX);
+}
+
+/*
+ * The downwash reverses relative to the fuselage when the collective changes
+ * sign, so the baro error for upright and inverted flight differ.  Keep one
+ * learned bias per thrust direction and swap it into the filter on a change.
+ */
+static void baroThrustDirectionUpdate(float collective)
+{
+    uint8_t dir = alt.thrustDir;
+
+    if (collective > THRUST_DIR_HYSTERESIS) {
+        dir = THRUST_UPRIGHT;
+    }
+    else if (collective < -THRUST_DIR_HYSTERESIS) {
+        dir = THRUST_INVERTED;
+    }
+
+    if (dir != alt.thrustDir) {
+        alt.baroBiasMem[alt.thrustDir] = alt.kfUp.x[2];
+        alt.kfUp.x[2] = alt.baroBiasMem[dir];
+        alt.kfUp.P[2][2] += BIAS_SWAP_VAR;
+        alt.thrustDir = dir;
+    }
+}
+
+static void estimatorResetZBias(void)
+{
+    alt.kfUp.x[2] = 0.0f;
+    alt.kfUp.P[0][2] = alt.kfUp.P[2][0] = 0.0f;
+    alt.kfUp.P[1][2] = alt.kfUp.P[2][1] = 0.0f;
+    alt.kfUp.P[2][2] = INITIAL_BIAS_VAR;
+    alt.baroBiasMem[THRUST_UPRIGHT] = 0.0f;
+    alt.baroBiasMem[THRUST_INVERTED] = 0.0f;
+    alt.thrustDir = THRUST_UPRIGHT;
+    alt.collSlow = 0.0f;
+    alt.baroRejects = 0;
+}
+
 static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed)
 {
-    kalmanPredict(&alt.kfUp, dt, armed ? accelUp : 0.0f);
+    static const float H_BARO[3] = { 1.0f, 0.0f, 1.0f };
+    static const float H_ALT[3]  = { 1.0f, 0.0f, 0.0f };
+#ifdef USE_GPS
+    static const float H_VEL[3]  = { 0.0f, 1.0f, 0.0f };
+#endif
 
-    bool baroFused = false;
-    bool zAnchorActive = false;     // a non-drifting source (GPS or rangefinder) fused
+    const uint8_t downwashComp = positionConfig()->baro_downwash_comp;
+    const float collective = armed ? pidGetCollective() : 0.0f;
+
+    alt.disturbance = (armed && downwashComp) ? baroDisturbanceUpdate(dt, collective) : 0.0f;
+
+    // The bias is only observable against a non-drifting anchor.  Without
+    // one (baro-only) freeze it, so the baro keeps acting as the altitude.
+    const bool anchorFresh = alt.lastZAnchorMs != 0 &&
+                             (nowMs - alt.lastZAnchorMs) < Z_ANCHOR_TIMEOUT_MS;
+
+    if (armed && downwashComp && anchorFresh) {
+        baroThrustDirectionUpdate(collective);
+    }
+    const float biasNoiseScale = (armed && anchorFresh) ? (1.0f + 10.0f * alt.disturbance) : 0.0f;
+
+    altKalmanPredict(&alt.kfUp, dt, armed ? accelUp : 0.0f, biasNoiseScale);
 
     if (alt.haveBaroAlt) {
-        kalmanUpdatePosition(&alt.kfUp, (alt.baroAlt - alt.baroAltOffset) * 100.0f,
-                             positionConfig()->est_r_baro_alt);
+        const float baroCm = (alt.baroAlt - alt.baroAltOffset) * 100.0f;
+        const float k = downwashComp / 10.0f;
+        const float baroR = positionConfig()->est_r_baro_alt *
+                            (1.0f + k * alt.disturbance * alt.disturbance);
+
+        // Gate spikes, but never lock the baro out for long: after a run of
+        // rejections accept the reading, and if an anchor is available let
+        // the step go into the bias rather than the altitude.
+        float gate = armed ? BARO_GATE_SIGMA : 0.0f;
+        if (alt.baroRejects >= BARO_GATE_MAX_REJECTS) {
+            if (anchorFresh) {
+                alt.kfUp.P[2][2] += BIAS_FORCE_ACCEPT_VAR;
+            }
+            gate = 0.0f;
+        }
+
+        if (altKalmanUpdate(&alt.kfUp, H_BARO, baroCm, baroR, gate)) {
+            alt.baroRejects = 0;
+        }
+        else if (alt.baroRejects < 255) {
+            alt.baroRejects++;
+        }
         alt.lastZMeasMs = nowMs;
-        baroFused = true;
     }
 
 #ifdef USE_GPS
-    if (alt.haveGpsAlt) {
+    // Fused once per new GPS message, using the raw (unfiltered) altitude:
+    // re-fusing the same sample every tick would make the filter far more
+    // confident than the GPS justifies, and the hard deck margin relies on
+    // an honest altitude variance.
+    if (alt.haveGpsAlt && gpsData.lastMessage != alt.lastGpsStampMs) {
+        alt.lastGpsStampMs = gpsData.lastMessage;
+
+        const float gpsAltCm = gpsSol.llh.altCm - alt.gpsAltOffset * 100.0f;
         const float gpsAltR = gpsMeasurementR(R_GPS_ALT_BASE, gpsSol.hdop);
-        kalmanUpdatePosition(&alt.kfUp, (alt.gpsAlt - alt.gpsAltOffset) * 100.0f, gpsAltR);
+        altKalmanUpdate(&alt.kfUp, H_ALT, gpsAltCm, gpsAltR, 0.0f);
+
+        // Doppler vertical velocity: unaffected by downwash and far less
+        // noisy than differentiated GPS altitude
+        if (armed && GPS_velDownValid) {
+            const float velR = gpsMeasurementR(positionConfig()->est_r_gps_vvel, gpsSol.hdop);
+            altKalmanUpdate(&alt.kfUp, H_VEL, -(float)GPS_velDownCms, velR, 0.0f);
+        }
+
         alt.lastZMeasMs = nowMs;
-        zAnchorActive = true;
+        alt.lastZAnchorMs = nowMs;
     }
 #endif
 
@@ -344,7 +524,7 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
         // First valid sample per flight: align the terrain-relative rangefinder
         // reading with the arm-relative KF frame instead of assuming they agree.
         if (!alt.rfOffsetSet) {
-            alt.rfAltOffset = rfAltCm - kalmanGetPosition(&alt.kfUp);
+            alt.rfAltOffset = rfAltCm - altKalmanGetAltitude(&alt.kfUp);
             alt.rfOffsetSet = true;
         }
 
@@ -353,26 +533,18 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
             rfR *= 0.25f;   // stronger pull when the user prefers the lidar
         }
 
-        kalmanUpdatePosition(&alt.kfUp, rfAltCm - alt.rfAltOffset, rfR);
+        altKalmanUpdate(&alt.kfUp, H_ALT, rfAltCm - alt.rfAltOffset, rfR, 0.0f);
         alt.lastZMeasMs = nowMs;
-        zAnchorActive = true;
+        alt.lastZAnchorMs = nowMs;
     }
 #endif
 
-    // Cross-calibration: baro drifts; whenever a non-drifting anchor is fused,
-    // slowly re-derive the baro zero-offset from the KF estimate.  Replaces the
-    // old armed-time baro-vs-GPS offset blend with a generalized version that
-    // also uses the rangefinder as an anchor.
-    if (armed && baroFused && zAnchorActive) {
-        const float idealOffset = alt.baroAlt - kalmanGetPosition(&alt.kfUp) / 100.0f;
-        alt.baroAltOffset += CROSS_CAL_ALPHA * (idealOffset - alt.baroAltOffset);
-    }
-
     alt.altValid = (alt.lastZMeasMs != 0 && (nowMs - alt.lastZMeasMs) < Z_MEASUREMENT_TIMEOUT_MS);
+    alt.kfValid = alt.altValid;
 
     if (alt.altValid) {
-        alt.altitude = kalmanGetPosition(&alt.kfUp) / 100.0f;
-        alt.variometer = kalmanGetVelocity(&alt.kfUp) / 100.0f;
+        alt.altitude = altKalmanGetAltitude(&alt.kfUp) / 100.0f;
+        alt.variometer = altKalmanGetVelocity(&alt.kfUp) / 100.0f;
     }
     else {
         alt.altitude = 0;
@@ -574,6 +746,7 @@ static void estimatorUpdate(void)
 
     if (armed && !estimatorWasArmed) {
         // Arming edge: the arm point is the origin of the local frame
+        estimatorResetZBias();
 #ifdef USE_OPTICAL_FLOW
         estimatorResetXY();
 #endif
@@ -635,8 +808,8 @@ void positionUpdate(void)
 #endif
 
     // While disarmed, track the sensor baselines so altitude is relative to
-    // the arm point.  While armed the baro offset is instead cross-calibrated
-    // against the KF estimate inside estimatorUpdateZ().
+    // the arm point.  While armed the remaining baro error (downwash, drift)
+    // is tracked by the bias state of the Z filter inside estimatorUpdateZ().
     if (!ARMING_FLAG(ARMED)) {
         if (alt.haveBaroAlt) {
             alt.baroAltOffset = filterApply(&alt.baroOffsetFilter, alt.baroAlt);
@@ -721,10 +894,17 @@ void INIT_CODE positionInit(void)
     lowpassFilterInit(&alt.gpsOffsetFilter, LPF_PT2, positionConfig()->gps_offset_lpf / 1000.0f, pidGetPidFrequency(), LPF_EWMA);
     lowpassFilterInit(&alt.baroOffsetFilter, LPF_PT2, positionConfig()->baro_offset_lpf / 1000.0f, pidGetPidFrequency(), LPF_EWMA);
 
-    kalmanInit(&alt.kfUp, 0, 0, INITIAL_POS_VAR, INITIAL_VEL_VAR,
-               positionConfig()->est_q_accel_z);
+    altKalmanInit(&alt.kfUp, INITIAL_POS_VAR, INITIAL_VEL_VAR, INITIAL_BIAS_VAR,
+                  positionConfig()->est_q_accel_z, positionConfig()->est_q_baro_bias);
+    estimatorResetZBias();
     alt.lastZMeasMs = 0;
+    alt.lastZAnchorMs = 0;
     alt.altValid = false;
+    alt.kfValid = false;
+    alt.disturbance = 0.0f;
+#ifdef USE_GPS
+    alt.lastGpsStampMs = 0;
+#endif
 
     estimatorLastUs = 0;
     estimatorWasArmed = false;
