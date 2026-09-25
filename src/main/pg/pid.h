@@ -120,6 +120,17 @@ typedef struct {
     uint16_t    stick_deadband;     // Roll/Pitch stick deadband 0-500
 } pidPosHoldConfig_t;
 
+typedef struct {
+    uint16_t    altitude;           // Hard deck altitude above the arm point, dm
+    uint16_t    arm_margin;         // Must climb this far above the deck before it arms, dm
+    uint16_t    recovery_margin;    // Recovery climbs to deck + this, dm
+    uint16_t    release_altitude;   // Hold releases when climbed to deck + this, dm (0 = switch only)
+    uint16_t    recovery_accel;     // Assumed vertical recovery acceleration, dm/s^2
+    uint16_t    reaction_time;      // Reaction latency used in the prediction, ms
+    uint8_t     sigma_factor;       // Altitude uncertainty margin, x10 sigma
+    uint8_t     use_agl;            // Also respect the rangefinder AGL reading
+} pidHardDeckConfig_t;
+
 typedef struct pidProfile_s {
 
     char                profileName[MAX_PROFILE_NAME_LENGTH + 1];
@@ -171,6 +182,7 @@ typedef struct pidProfile_s {
     pidRescueConfig_t   rescue;
     pidAltHoldConfig_t  althold;
     pidPosHoldConfig_t  poshold;
+    pidHardDeckConfig_t harddeck;
     governorProfile_t   governor;
 
 } pidProfile_t;

@@ -95,6 +95,7 @@ COMMON_SRC = \
             flight/kalman.c \
             flight/althold.c \
             flight/poshold.c \
+            flight/harddeck.c \
             flight/failsafe.c \
             flight/gps_rescue.c \
             flight/dyn_notch_filter.c \

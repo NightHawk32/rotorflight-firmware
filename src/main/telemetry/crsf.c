@@ -50,6 +50,7 @@
 #include "flight/mixer.h"
 #include "flight/position.h"
 #include "flight/governor.h"
+#include "flight/harddeck.h"
 
 #include "io/displayport_crsf.h"
 #include "io/gps.h"
@@ -483,6 +484,8 @@ static void crsfFlightModeInfo(char *buf)
         flightMode = "GPS-RESCUE";
     } else if (FLIGHT_MODE(RESCUE_MODE)) {
         flightMode = "RESCUE";
+    } else if (hardDeckIsIntervening()) {
+        flightMode = "HARDDECK";
     } else if (FLIGHT_MODE(HORIZON_MODE)) {
         flightMode = "HORIZON";
     } else if (FLIGHT_MODE(ANGLE_MODE)) {

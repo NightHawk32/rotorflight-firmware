@@ -106,6 +106,7 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] =
     BOXITEM(BOXGOVSUSPEND, "GOVERNOR SUSPEND", 56),
     BOXITEM(BOXGOVBYPASS, "GOVERNOR BYPASS", 57),
     BOXITEM(BOXPOSHOLD, "POSHOLD", 58),
+    BOXITEM(BOXHARDDECK, "HARD DECK", 59),
 };
 
 // mask of enabled IDs, calculated on startup based on enabled features. boxId_e is used as bit index
@@ -199,6 +200,11 @@ void initActiveBoxIds(void)
         BME(BOXANGLE);
         BME(BOXHORIZON);
         BME(BOXRESCUE);
+        BME(BOXALTHOLD);
+        BME(BOXHARDDECK);
+#ifdef USE_OPTICAL_FLOW
+        BME(BOXPOSHOLD);
+#endif
 #ifdef USE_ACRO_TRAINER
         BME(BOXTRAINER);
 #endif

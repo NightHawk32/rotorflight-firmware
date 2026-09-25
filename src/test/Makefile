@@ -193,6 +193,11 @@ maths_unittest_SRC := \
 		$(USER_DIR)/common/maths.c
 
 
+harddeck_unittest_SRC := \
+		$(USER_DIR)/flight/harddeck.c \
+		$(USER_DIR)/common/maths.c
+
+
 # This test is disabled due to build errors.
 #motor_output_unittest_SRC := \
 #		$(USER_DIR)/drivers/dshot.c

@@ -80,6 +80,7 @@
 #include "flight/rescue.h"
 #include "flight/airborne.h"
 #include "flight/althold.h"
+#include "flight/harddeck.h"
 #ifdef USE_OPTICAL_FLOW
 #include "flight/poshold.h"
 #endif
@@ -681,6 +682,26 @@ void processRxModes(timeUs_t currentTimeUs)
             DISABLE_FLIGHT_MODE(RESCUE_MODE);
         }
 
+        if (IS_RC_MODE_ACTIVE(BOXALTHOLD)) {
+            ENABLE_FLIGHT_MODE(ALTHOLD_MODE);
+        } else {
+            DISABLE_FLIGHT_MODE(ALTHOLD_MODE);
+        }
+
+#ifdef USE_OPTICAL_FLOW
+        if (IS_RC_MODE_ACTIVE(BOXPOSHOLD)) {
+            ENABLE_FLIGHT_MODE(POSHOLD_MODE);
+        } else {
+            DISABLE_FLIGHT_MODE(POSHOLD_MODE);
+        }
+#endif
+
+        if (IS_RC_MODE_ACTIVE(BOXHARDDECK)) {
+            ENABLE_FLIGHT_MODE(HARDDECK_MODE);
+        } else {
+            DISABLE_FLIGHT_MODE(HARDDECK_MODE);
+        }
+
         if (IS_RC_MODE_ACTIVE(BOXANGLE) && (!ARMING_FLAG(ARMED) || isAirborne())) {
             ENABLE_FLIGHT_MODE(ANGLE_MODE);
             DISABLE_FLIGHT_MODE(HORIZON_MODE);
@@ -775,6 +796,7 @@ static void subTaskSetpoint(timeUs_t currentTimeUs)
 #ifdef USE_OPTICAL_FLOW
     posHoldUpdate();
 #endif
+    hardDeckUpdate();
 }
 
 static void subTaskPidController(timeUs_t currentTimeUs)
