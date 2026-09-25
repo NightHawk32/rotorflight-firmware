@@ -51,6 +51,9 @@ typedef struct positionConfig_s {
     uint16_t est_r_gps_pos;     // measurement noise: GPS position (cm^2) at HDOP 1.0
     uint16_t est_r_gps_vel;     // measurement noise: GPS velocity ((cm/s)^2) at HDOP 1.0
     uint16_t est_r_flow_vel;    // measurement noise: optical flow velocity ((cm/s)^2) at max quality
+    uint16_t est_r_gps_vvel;    // measurement noise: GPS Doppler vertical velocity ((cm/s)^2) at DOP 1.0
+    uint16_t est_q_baro_bias;   // process noise: baro downwash bias random walk (cm^2/s)
+    uint8_t  baro_downwash_comp;// baro downwash compensation strength (0 = off, x10)
 } positionConfig_t;
 
 PG_DECLARE(positionConfig_t, positionConfig);
