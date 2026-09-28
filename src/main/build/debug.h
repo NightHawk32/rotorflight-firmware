@@ -134,6 +134,7 @@ typedef enum {
     DEBUG_OPTICAL_FLOW,
     DEBUG_POS_EST_Z,
     DEBUG_POS_EST_XY,
+    DEBUG_POS_EST_TERRAIN,
     DEBUG_COUNT
 } debugType_e;
 

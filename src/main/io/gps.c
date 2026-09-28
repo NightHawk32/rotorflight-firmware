@@ -830,6 +830,9 @@ void gpsUpdate(timeUs_t currentTimeUs)
 
         case GPS_STATE_LOST_COMMUNICATION:
             gpsSol.numSat = 0;
+            gpsSol.hAcc = gpsSol.vAcc = gpsSol.sAcc = 0;
+            gpsSol.velNEValid = false;
+            GPS_velDownValid = false;
             DISABLE_STATE(GPS_FIX);
             // No module answering - back off instead of re-initialising the UART forever
             if (gpsData.lost_comm_count >= GPS_LOST_COMM_FAST_RETRIES &&
@@ -1504,6 +1507,8 @@ static bool UBLOX_parse_gps(void)
         gpsSol.llh.lon = _buffer.posllh.longitude;
         gpsSol.llh.lat = _buffer.posllh.latitude;
         gpsSol.llh.altCm = _buffer.posllh.altitudeMslMm / 10;  //alt in cm
+        gpsSol.hAcc = MIN(_buffer.posllh.horizontal_accuracy / 10, UINT16_MAX);  // mm -> cm
+        gpsSol.vAcc = MIN(_buffer.posllh.vertical_accuracy / 10, UINT16_MAX);
         gpsSetFixState(next_fix);
         _new_position = true;
         break;
@@ -1536,6 +1541,10 @@ static bool UBLOX_parse_gps(void)
         gpsSol.groundCourse = (uint16_t) (_buffer.velned.heading_2d / 10000);     // Heading 2D deg * 100000 rescaled to deg * 10
         GPS_velDownCms = _buffer.velned.ned_down;       // cm/s
         GPS_velDownValid = true;
+        gpsSol.velN = _buffer.velned.ned_north;         // cm/s
+        gpsSol.velE = _buffer.velned.ned_east;
+        gpsSol.velNEValid = true;
+        gpsSol.sAcc = MIN(_buffer.velned.speed_accuracy, UINT16_MAX);  // cm/s
         _new_speed = true;
         break;
     case MSG_PVT:
@@ -1553,6 +1562,12 @@ static bool UBLOX_parse_gps(void)
         gpsSol.groundCourse = (uint16_t) (_buffer.pvt.headMot / 10000);     // Heading 2D deg * 100000 rescaled to deg * 10
         GPS_velDownCms = _buffer.pvt.velD / 10;         // mm/s -> cm/s
         GPS_velDownValid = true;
+        gpsSol.velN = _buffer.pvt.velN / 10;            // mm/s -> cm/s
+        gpsSol.velE = _buffer.pvt.velE / 10;
+        gpsSol.velNEValid = true;
+        gpsSol.hAcc = MIN(_buffer.pvt.hAcc / 10, UINT16_MAX);   // mm -> cm
+        gpsSol.vAcc = MIN(_buffer.pvt.vAcc / 10, UINT16_MAX);
+        gpsSol.sAcc = MIN(_buffer.pvt.sAcc / 10, UINT16_MAX);   // mm/s -> cm/s
         _new_speed = true;
 #ifdef USE_RTC_TIME
         //set clock, when gps time is available

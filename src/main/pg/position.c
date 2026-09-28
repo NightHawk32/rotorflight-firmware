@@ -25,7 +25,7 @@
 #include "pg/pg_ids.h"
 #include "pg/position.h"
 
-PG_REGISTER_WITH_RESET_TEMPLATE(positionConfig_t, positionConfig, PG_POSITION, 2);
+PG_REGISTER_WITH_RESET_TEMPLATE(positionConfig_t, positionConfig, PG_POSITION, 3);
 
 PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .alt_source = ALT_SOURCE_DEFAULT,
@@ -40,7 +40,7 @@ PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .xy_source = XY_SOURCE_AUTO,
     .est_q_accel_xy = 50000,
     .est_q_accel_z = 20000,
-    .est_r_baro_alt = 1500,
+    .est_r_baro_alt = 600,
     .est_r_rangefinder_alt = 100,
     .est_r_gps_pos = 500,
     .est_r_gps_vel = 100,
@@ -48,4 +48,6 @@ PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .est_r_gps_vvel = 400,
     .est_q_baro_bias = 400,
     .baro_downwash_comp = 30,
+    .est_q_terrain = 200,
+    .flow_gyro_comp = 100,
 );

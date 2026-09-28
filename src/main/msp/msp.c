@@ -1395,7 +1395,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
 #endif
 
     case MSP2_GET_POSITION_CONFIG:
-        sbufWriteU8(dst, 1);    // payload version
+        sbufWriteU8(dst, 2);    // payload version
         sbufWriteU8(dst, positionConfig()->alt_source);
         sbufWriteU8(dst, positionConfig()->xy_source);
         sbufWriteU8(dst, positionConfig()->baro_alt_lpf);
@@ -1414,6 +1414,8 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         sbufWriteU16(dst, positionConfig()->est_r_flow_vel);
         sbufWriteU16(dst, positionConfig()->est_r_gps_vvel);
         sbufWriteU8(dst, positionConfig()->baro_downwash_comp);
+        sbufWriteU16(dst, positionConfig()->est_q_terrain);
+        sbufWriteU16(dst, positionConfig()->flow_gyro_comp);
 #ifdef USE_RANGEFINDER
         sbufWriteU8(dst, rangefinderConfig()->rangefinder_hardware);
 #else
@@ -1454,7 +1456,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         positionStatus_t st;
         positionGetStatus(&st);
 
-        sbufWriteU8(dst, 1);    // payload version
+        sbufWriteU8(dst, 2);    // payload version
 
         // Estimator
         sbufWriteU16(dst, st.flags);
@@ -1519,6 +1521,10 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
             sbufWriteU32(dst, lrintf(predicted * 100));
             sbufWriteU32(dst, lrintf(target * 100));
         }
+
+        // Terrain offset state (payload version 2)
+        sbufWriteU32(dst, lrintf(st.terrainCm));
+        sbufWriteU16(dst, constrain(lrintf(st.terrainSigmaCm), 0, UINT16_MAX));
         break;
     }
 
@@ -4406,7 +4412,7 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         // Sensor hardware and position_alt_source are read at boot, the
         // Kalman process noise at init / arming: the configurator reboots
         // after saving these.
-        if (sbufReadU8(src) != 1) {
+        if (sbufReadU8(src) != 2) {
             return MSP_RESULT_ERROR;
         }
         positionConfigMutable()->alt_source = sbufReadU8(src);
@@ -4427,6 +4433,8 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         positionConfigMutable()->est_r_flow_vel = sbufReadU16(src);
         positionConfigMutable()->est_r_gps_vvel = sbufReadU16(src);
         positionConfigMutable()->baro_downwash_comp = sbufReadU8(src);
+        positionConfigMutable()->est_q_terrain = sbufReadU16(src);
+        positionConfigMutable()->flow_gyro_comp = sbufReadU16(src);
 #ifdef USE_RANGEFINDER
         rangefinderConfigMutable()->rangefinder_hardware = sbufReadU8(src);
 #else

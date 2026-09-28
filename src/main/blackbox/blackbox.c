@@ -1826,9 +1826,10 @@ static bool blackboxWriteSysinfo(void)
                                                                             positionConfig()->gps_offset_lpf,
                                                                             positionConfig()->vario_lpf);
         BLACKBOX_PRINT_HEADER_LINE("position_gps_min_sats", "%d",           positionConfig()->gps_min_sats);
-        BLACKBOX_PRINT_HEADER_LINE("position_est_q", "%d,%d,%d",            positionConfig()->est_q_accel_xy,
+        BLACKBOX_PRINT_HEADER_LINE("position_est_q", "%d,%d,%d,%d",         positionConfig()->est_q_accel_xy,
                                                                             positionConfig()->est_q_accel_z,
-                                                                            positionConfig()->est_q_baro_bias);
+                                                                            positionConfig()->est_q_baro_bias,
+                                                                            positionConfig()->est_q_terrain);
         BLACKBOX_PRINT_HEADER_LINE("position_est_r", "%d,%d,%d,%d,%d,%d",   positionConfig()->est_r_baro_alt,
                                                                             positionConfig()->est_r_rangefinder_alt,
                                                                             positionConfig()->est_r_gps_pos,
@@ -1836,6 +1837,7 @@ static bool blackboxWriteSysinfo(void)
                                                                             positionConfig()->est_r_flow_vel,
                                                                             positionConfig()->est_r_gps_vvel);
         BLACKBOX_PRINT_HEADER_LINE("position_baro_downwash_comp", "%d",     positionConfig()->baro_downwash_comp);
+        BLACKBOX_PRINT_HEADER_LINE("position_flow_gyro_comp", "%d",         positionConfig()->flow_gyro_comp);
 #ifdef USE_RANGEFINDER
         BLACKBOX_PRINT_HEADER_LINE("rangefinder_hardware", "%d",            rangefinderConfig()->rangefinder_hardware);
 #endif

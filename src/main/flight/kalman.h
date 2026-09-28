@@ -40,7 +40,8 @@ static inline float kalmanGetPositionVariance(const positionKalman_t *kf) { retu
 static inline float kalmanGetVelocityVariance(const positionKalman_t *kf) { return kf->P[1][1]; }
 
 
-// 3-state vertical Kalman filter: [altitude, vertical velocity, baro bias].
+// 4-state vertical Kalman filter:
+//   [altitude, vertical velocity, baro bias, terrain offset]
 //
 // The barometer on a helicopter sits in the rotor downwash, so its reading is
 // offset by a pressure error that depends on rotor thrust (collective,
@@ -49,24 +50,50 @@ static inline float kalmanGetVelocityVariance(const positionKalman_t *kf) { retu
 // the non-drifting sources (GPS altitude, GPS Doppler velocity, rangefinder)
 // estimate it continuously, instead of the baro dragging the altitude around.
 //
+// The rangefinder measures height above the ground, not altitude in the arm
+// frame.  The terrain offset state is the ground height under the model
+// relative to the arm point (after the one-time alignment), so a hill or a
+// table edge moves the terrain state instead of the altitude.  It is a
+// random walk whose process noise the caller scales with horizontal speed:
+// hovering over one spot the ground cannot change, so the rangefinder is a
+// firm altitude anchor there.
+//
 // Measurement models (H):
-//   baro             [1, 0, 1]   altitude + bias
-//   GPS / lidar alt  [1, 0, 0]
-//   GPS velocity     [0, 1, 0]
+//   baro             [1, 0, 1, 0]   altitude + bias
+//   GPS altitude     [1, 0, 0, 0]
+//   GPS velocity     [0, 1, 0, 0]
+//   rangefinder      [1, 0, 0, -1]  altitude - terrain
+#define ALT_KF_STATES   4
+
 typedef struct altitudeKalman_s {
-    float x[3];      // [0]=altitude (cm), [1]=vertical velocity (cm/s), [2]=baro bias (cm)
-    float P[3][3];   // error covariance
+    float x[ALT_KF_STATES];                 // [0]=altitude (cm), [1]=vertical velocity (cm/s),
+                                            // [2]=baro bias (cm), [3]=terrain offset (cm)
+    float P[ALT_KF_STATES][ALT_KF_STATES];  // error covariance
     float Q_accel;   // process noise: accelerometer variance (cm/s^2)^2
     float Q_bias;    // process noise: baro bias random walk (cm^2/s)
 } altitudeKalman_t;
 
-void altKalmanInit(altitudeKalman_t *kf, float initialPosVar, float initialVelVar, float initialBiasVar, float qAccel, float qBias);
-void altKalmanPredict(altitudeKalman_t *kf, float dt, float accel, float biasNoiseScale);
-// Scalar update with a 0/1 measurement row H. With gateSigma > 0 an innovation
+void altKalmanInit(altitudeKalman_t *kf, float initialPosVar, float initialVelVar, float initialBiasVar,
+                   float initialTerrainVar, float qAccel, float qBias);
+// biasNoiseScale multiplies Q_bias*dt; terrainNoise is the variance (cm^2)
+// added to the terrain state in this step.
+void altKalmanPredict(altitudeKalman_t *kf, float dt, float accel, float biasNoiseScale, float terrainNoise);
+// Scalar update with a measurement row H. With gateSigma > 0 an innovation
 // larger than gateSigma standard deviations is rejected; returns false then.
-bool altKalmanUpdate(altitudeKalman_t *kf, const float H[3], float measurement, float R, float gateSigma);
+// innovation (optional) receives measurement - predicted measurement.
+bool altKalmanUpdate(altitudeKalman_t *kf, const float H[ALT_KF_STATES], float measurement, float R,
+                     float gateSigma, float *innovation);
+// Reset one state to a value and variance, removing its cross-covariances.
+void altKalmanResetState(altitudeKalman_t *kf, int state, float value, float variance);
+// Drop the cross-covariances of one state and cap its variance, so that a
+// measurement can no longer move it much (used to freeze the bias when no
+// anchor sensor makes it observable).
+void altKalmanDecoupleState(altitudeKalman_t *kf, int state, float maxVariance);
 
 static inline float altKalmanGetAltitude(const altitudeKalman_t *kf) { return kf->x[0]; }
 static inline float altKalmanGetVelocity(const altitudeKalman_t *kf) { return kf->x[1]; }
 static inline float altKalmanGetBias(const altitudeKalman_t *kf) { return kf->x[2]; }
+static inline float altKalmanGetTerrain(const altitudeKalman_t *kf) { return kf->x[3]; }
 static inline float altKalmanGetAltitudeVariance(const altitudeKalman_t *kf) { return kf->P[0][0]; }
+static inline float altKalmanGetBiasVariance(const altitudeKalman_t *kf) { return kf->P[2][2]; }
+static inline float altKalmanGetTerrainVariance(const altitudeKalman_t *kf) { return kf->P[3][3]; }
