@@ -46,8 +46,16 @@ typedef struct gpsSolutionData_s {
     uint16_t speed3d;              // speed in 0.1m/s
     uint16_t groundSpeed;           // speed in cm/s
     uint16_t groundCourse;          // degrees * 10
-    uint16_t hdop;                  // generic HDOP value (*100)
+    uint16_t hdop;                  // generic HDOP value (*100); u-blox reports pDOP here
     uint8_t numSat;
+    // Receiver accuracy estimates (1 sigma), 0 = not reported (NMEA)
+    uint16_t hAcc;                  // horizontal position accuracy, cm
+    uint16_t vAcc;                  // vertical position accuracy, cm
+    uint16_t sAcc;                  // speed accuracy, cm/s
+    // Doppler velocity in the horizontal plane, valid with velNEValid (u-blox)
+    int32_t velN;                   // cm/s, North positive
+    int32_t velE;                   // cm/s, East positive
+    bool velNEValid;
 } gpsSolutionData_t;
 
 typedef struct gpsData_s {

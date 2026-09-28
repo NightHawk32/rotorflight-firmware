@@ -142,27 +142,29 @@ void kalmanUpdateVelocity(positionKalman_t *kf, float measuredVel, float R)
 
 
 void altKalmanInit(altitudeKalman_t *kf, float initialPosVar, float initialVelVar,
-                   float initialBiasVar, float qAccel, float qBias)
+                   float initialBiasVar, float initialTerrainVar, float qAccel, float qBias)
 {
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < ALT_KF_STATES; i++) {
         kf->x[i] = 0.0f;
-        for (int j = 0; j < 3; j++) {
+        for (int j = 0; j < ALT_KF_STATES; j++) {
             kf->P[i][j] = 0.0f;
         }
     }
     kf->P[0][0] = initialPosVar;
     kf->P[1][1] = initialVelVar;
     kf->P[2][2] = initialBiasVar;
+    kf->P[3][3] = initialTerrainVar;
     kf->Q_accel = qAccel;
     kf->Q_bias = qBias;
 }
 
-// State transition:  F = [1, dt, 0]    B = [0.5*dt^2]
-//                        [0,  1, 0]        [dt      ]
-//                        [0,  0, 1]        [0       ]
+// State transition:  F = [1, dt, 0, 0]    B = [0.5*dt^2]
+//                        [0,  1, 0, 0]        [dt      ]
+//                        [0,  0, 1, 0]        [0       ]
+//                        [0,  0, 0, 1]        [0       ]
 //
-// Covariance:  P = F*P*F' + B*Q_accel*B' + diag(0, 0, Q_bias*dt*scale)
-void altKalmanPredict(altitudeKalman_t *kf, float dt, float accel, float biasNoiseScale)
+// Covariance:  P = F*P*F' + B*Q_accel*B' + diag(0, 0, Q_bias*dt*scale, terrainNoise)
+void altKalmanPredict(altitudeKalman_t *kf, float dt, float accel, float biasNoiseScale, float terrainNoise)
 {
     const float dt2 = dt * dt;
     const float halfDt2 = 0.5f * dt2;
@@ -174,49 +176,66 @@ void altKalmanPredict(altitudeKalman_t *kf, float dt, float accel, float biasNoi
     const float p00 = kf->P[0][0];
     const float p01 = kf->P[0][1];
     const float p02 = kf->P[0][2];
+    const float p03 = kf->P[0][3];
     const float p11 = kf->P[1][1];
     const float p12 = kf->P[1][2];
+    const float p13 = kf->P[1][3];
 
+    // Only the altitude row is coupled to the velocity by F; the bias and
+    // terrain rows are pure random walks.
     kf->P[0][0] = p00 + 2.0f * dt * p01 + dt2 * p11 + 0.25f * dt2 * dt2 * q;
     kf->P[0][1] = p01 + dt * p11 + halfDt2 * dt * q;
     kf->P[0][2] = p02 + dt * p12;
+    kf->P[0][3] = p03 + dt * p13;
     kf->P[1][1] = p11 + dt2 * q;
     kf->P[2][2] += kf->Q_bias * dt * biasNoiseScale;
+    kf->P[3][3] += terrainNoise;
 
     kf->P[1][0] = kf->P[0][1];
     kf->P[2][0] = kf->P[0][2];
-    // P[1][2] and P[2][1] are unchanged by F
+    kf->P[3][0] = kf->P[0][3];
+    // P[1][2], P[1][3], P[2][3] and their mirrors are unchanged by F
 }
 
-bool altKalmanUpdate(altitudeKalman_t *kf, const float H[3], float measurement, float R, float gateSigma)
+bool altKalmanUpdate(altitudeKalman_t *kf, const float H[ALT_KF_STATES], float measurement, float R,
+                     float gateSigma, float *innovation)
 {
     // PHt = P*H'
-    float PHt[3];
-    for (int i = 0; i < 3; i++) {
-        PHt[i] = kf->P[i][0] * H[0] + kf->P[i][1] * H[1] + kf->P[i][2] * H[2];
+    float PHt[ALT_KF_STATES];
+    float S = R;
+    float predicted = 0.0f;
+    for (int i = 0; i < ALT_KF_STATES; i++) {
+        PHt[i] = 0.0f;
+        for (int j = 0; j < ALT_KF_STATES; j++) {
+            PHt[i] += kf->P[i][j] * H[j];
+        }
+        S += H[i] * PHt[i];
+        predicted += H[i] * kf->x[i];
     }
 
-    const float S = H[0] * PHt[0] + H[1] * PHt[1] + H[2] * PHt[2] + R;
     if (S < 1e-9f) {
         return false;
     }
 
-    const float y = measurement - (H[0] * kf->x[0] + H[1] * kf->x[1] + H[2] * kf->x[2]);
+    const float y = measurement - predicted;
+    if (innovation) {
+        *innovation = y;
+    }
 
     if (gateSigma > 0.0f && y * y > gateSigma * gateSigma * S) {
         return false;
     }
 
     const float Sinv = 1.0f / S;
-    float K[3];
-    for (int i = 0; i < 3; i++) {
+    float K[ALT_KF_STATES];
+    for (int i = 0; i < ALT_KF_STATES; i++) {
         K[i] = PHt[i] * Sinv;
         kf->x[i] += K[i] * y;
     }
 
     // P = P - K*(H*P) = P - K*PHt'  (P symmetric)
-    for (int i = 0; i < 3; i++) {
-        for (int j = i; j < 3; j++) {
+    for (int i = 0; i < ALT_KF_STATES; i++) {
+        for (int j = i; j < ALT_KF_STATES; j++) {
             const float v = kf->P[i][j] - K[i] * PHt[j];
             kf->P[i][j] = v;
             kf->P[j][i] = v;
@@ -224,4 +243,27 @@ bool altKalmanUpdate(altitudeKalman_t *kf, const float H[3], float measurement, 
     }
 
     return true;
+}
+
+void altKalmanResetState(altitudeKalman_t *kf, int state, float value, float variance)
+{
+    kf->x[state] = value;
+    for (int i = 0; i < ALT_KF_STATES; i++) {
+        kf->P[state][i] = 0.0f;
+        kf->P[i][state] = 0.0f;
+    }
+    kf->P[state][state] = variance;
+}
+
+void altKalmanDecoupleState(altitudeKalman_t *kf, int state, float maxVariance)
+{
+    for (int i = 0; i < ALT_KF_STATES; i++) {
+        if (i != state) {
+            kf->P[state][i] = 0.0f;
+            kf->P[i][state] = 0.0f;
+        }
+    }
+    if (kf->P[state][state] > maxVariance) {
+        kf->P[state][state] = maxVariance;
+    }
 }
