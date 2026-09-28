@@ -38,6 +38,10 @@
 
 #include "config/feature.h"
 
+#ifdef USE_CRSF_SENSORS
+#include "drivers/crsf_sensors.h"
+#endif
+
 #include "drivers/light_led.h"
 #include "drivers/time.h"
 
@@ -331,6 +335,68 @@ bool gpsUsesFbusTransport(void)
 #endif
 }
 
+bool gpsUsesCrsfTransport(void)
+{
+#if defined(USE_CRSF_SENSORS)
+    return gpsConfig()->provider == GPS_CRSF &&
+           findSerialPortConfig(FUNCTION_CRSF_SENSORS) != NULL;
+#else
+    return false;
+#endif
+}
+
+bool gpsUsesExternalTransport(void)
+{
+    return gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport() || gpsUsesCrsfTransport();
+}
+
+#if defined(USE_CRSF_SENSORS)
+// A CRSF GPS frame carries no fix flag; treat a 3D fix as at least this
+// many satellites in use
+#define GPS_CRSF_MIN_SATS_FOR_FIX   4
+
+/*
+ * Copy the latest GPS frame decoded by the CRSF sensor driver into the GPS
+ * solution, once per frame.  The frame has position, ground speed, course,
+ * altitude and satellite count only: no DOP, no accuracy estimate and no
+ * Doppler velocity, so those are marked unknown and the estimator falls
+ * back to its assumed accuracies.
+ */
+static void gpsPollCrsfSensors(void)
+{
+    static timeUs_t lastFrameUs;
+    crsfSensorsGpsData_t frame;
+
+    if (crsfSensorsGetGpsData(&frame)) {
+        if (frame.lastUpdateUs != lastFrameUs) {
+            lastFrameUs = frame.lastUpdateUs;
+
+            gpsSol.llh.lat = frame.latitude;
+            gpsSol.llh.lon = frame.longitude;
+            gpsSol.llh.altCm = frame.altitudeCm;
+            gpsSol.groundSpeed = frame.groundspeedCmS;
+            gpsSol.speed3d = frame.groundspeedCmS;
+            gpsSol.groundCourse = frame.headingDeg10;     // decidegrees
+            gpsSol.numSat = frame.satellites;
+            gpsSol.hdop = 0;                              // unknown
+            gpsSol.hAcc = gpsSol.vAcc = gpsSol.sAcc = 0;  // unknown
+            gpsSol.velNEValid = false;
+            GPS_velDownValid = false;
+
+            gpsData.lastMessage = millis();
+            gpsSetFixState(frame.satellites >= GPS_CRSF_MIN_SATS_FOR_FIX);
+            GPS_update |= GPS_MSP_UPDATE;
+        }
+    }
+    else {
+        // No frame within the CRSF sensor timeout
+        sensorsClear(SENSOR_GPS);
+        gpsSetFixState(false);
+        gpsSol.numSat = 0;
+    }
+}
+#endif
+
 void gpsInit(void)
 {
     gpsData.baudrateIndex = 0;
@@ -345,7 +411,7 @@ void gpsInit(void)
 
     gpsData.lastMessage = millis();
 
-    if (gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport()) { // no serial port is used when GPS is fed by MSP or FBUS
+    if (gpsUsesExternalTransport()) { // no serial port is used when GPS is fed by MSP, FBUS or CRSF
         gpsSetState(GPS_STATE_INITIALIZED);
         return;
     }
@@ -796,11 +862,17 @@ void gpsUpdate(timeUs_t currentTimeUs)
         rescheduleTask(TASK_SELF, TASK_PERIOD_HZ(TASK_GPS_RATE));
     }
 
-    // GPS data received via MSP or FBUS
+#if defined(USE_CRSF_SENSORS)
+    if (gpsUsesCrsfTransport()) {
+        gpsPollCrsfSensors();
+    }
+#endif
+
+    // GPS data received via MSP, FBUS or CRSF
     if (GPS_update & GPS_MSP_UPDATE) {
-        if (gpsConfig()->provider == GPS_MSP || gpsUsesFbusTransport()) {
+        if (gpsUsesExternalTransport()) {
             gpsSetState(GPS_STATE_RECEIVING_DATA);
-            if (gpsUsesFbusTransport()) {
+            if (gpsUsesFbusTransport() || gpsUsesCrsfTransport()) {
                 sensorsSet(SENSOR_GPS);
             }
             onGpsNewData();
@@ -822,8 +894,8 @@ void gpsUpdate(timeUs_t currentTimeUs)
         case GPS_STATE_INITIALIZING:
         case GPS_STATE_CHANGE_BAUD:
         case GPS_STATE_CONFIGURE:
-            // Skip hardware initialization for MSP and FBUS GPS (no serial port)
-            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport()) {
+            // Skip hardware initialization for MSP, FBUS and CRSF GPS (no serial port)
+            if (!gpsUsesExternalTransport()) {
                 gpsInitHardware();
             }
             break;
@@ -848,16 +920,16 @@ void gpsUpdate(timeUs_t currentTimeUs)
                 gpsData.baudrateIndex++;
                 gpsData.baudrateIndex %= GPS_INIT_ENTRIES;
             }
-            // Don't try to reinitialize MSP/FBUS GPS on timeout
-            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport()) {
+            // Don't try to reinitialize MSP/FBUS/CRSF GPS on timeout
+            if (!gpsUsesExternalTransport()) {
                 gpsSetState(GPS_STATE_INITIALIZING);
             }
             break;
 
         case GPS_STATE_RECEIVING_DATA:
             // check for no data/gps timeout/cable disconnection etc
-            // Skip timeout check for MSP/FBUS GPS (data comes from other sources)
-            if (gpsConfig()->provider != GPS_MSP && !gpsUsesFbusTransport()) {
+            // Skip timeout check for MSP/FBUS/CRSF GPS (data comes from other sources)
+            if (!gpsUsesExternalTransport()) {
                 if (millis() - gpsData.lastMessage > GPS_TIMEOUT) {
                     gpsSetState(GPS_STATE_LOST_COMMUNICATION);
 #ifdef USE_GPS_UBLOX
