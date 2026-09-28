@@ -145,6 +145,9 @@ void gpsUpdate(timeUs_t currentTimeUs);
 bool gpsNewFrame(uint8_t c);
 bool gpsIsHealthy(void); // Check for healthy communications
 bool gpsUsesFbusTransport(void);
+bool gpsUsesCrsfTransport(void);
+// MSP, FBUS or CRSF: GPS data arrives from another driver, no GPS serial port
+bool gpsUsesExternalTransport(void);
 struct serialPort_s;
 void gpsEnablePassthrough(struct serialPort_s *gpsPassthroughPort);
 void onGpsNewData(void);

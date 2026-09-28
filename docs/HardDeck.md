@@ -78,22 +78,23 @@ fuselage is on the inflow side of the disk). A plain baro altitude can
 therefore be off by metres during aerobatics, which is exactly when the hard
 deck matters.
 
-The vertical estimator in `flight/position.c` is a 3-state Kalman filter:
+The vertical estimator in `flight/position.c` is a 4-state Kalman filter:
 
 | State | Driven by |
 | --- | --- |
 | altitude | IMU vertical acceleration (prediction) |
 | vertical velocity | IMU vertical acceleration (prediction) |
 | **baro bias** | random walk, faster during rotor transients |
+| **terrain offset** | random walk driven by the distance flown (ground height under the model) |
 
 These measurements are fused into it:
 
 | Sensor | Measures | Notes |
 | --- | --- | --- |
-| Baro | altitude **+ bias** | Noise is raised during collective transients and high cyclic rates. Spikes beyond 5 sigma are rejected. |
-| GPS altitude | altitude | Raw altitude, fused once per GPS message, noise scaled by DOP² |
+| Baro | altitude **+ bias** | Raw sample, fused once per baro sample. Noise is raised during collective transients and high cyclic rates. Spikes beyond 5 sigma are rejected, for at most 500 ms in a row. |
+| GPS altitude | altitude | Raw altitude, fused once per GPS message, noise from the receiver's vAcc (u-blox), DOP² (NMEA) or an assumed 4 m (CRSF) |
 | GPS Doppler velocity (u-blox) | vertical velocity | Not affected by downwash and much less noisy than differentiated GPS altitude |
-| Rangefinder | altitude | Only when valid and allowed by `position_alt_source` |
+| Rangefinder | altitude **− terrain** | Only when valid and allowed by `position_alt_source`. Over one spot the terrain is frozen and the rangefinder anchors the altitude; while moving, ground-height changes go into the terrain state |
 
 What this does:
 
@@ -108,8 +109,8 @@ What this does:
   inverted-flight offset is not learned again after every flip.
 * In **rotor transients** (a collective punch, a fast flip) the baro is
   temporarily trusted less and the IMU and GPS carry the estimate through.
-* Without GPS or rangefinder (baro only), the bias is frozen and the baro acts
-  as the altitude reference, as before.
+* Without GPS or rangefinder (baro only), the bias is frozen and decoupled, and
+  the baro acts as the altitude reference, as before.
 
 In a host simulation of 10 minutes of alternating upright and inverted flight
 with collective punch-outs (baro bias of +1.5 m upright and −2.5 m inverted,
@@ -118,8 +119,9 @@ GPS with 1.5 m noise), the RMS altitude error was **16 cm** (worst case
 **2.2 m** (worst case 4 m).
 
 The estimator also removes an earlier problem: the same low-pass-filtered GPS
-altitude was fused on every 100 Hz tick, which made the filter's variance far
-too optimistic. GPS is now fused once per new message.
+altitude, and later the 1 Hz-filtered baro, was fused on every 100 Hz tick,
+which made the filter's variance far too optimistic. Every sensor is now fused
+once per new sample.
 
 ---
 
@@ -163,7 +165,8 @@ switch is configured or not.
 | --- | --- | --- |
 | `position_baro_downwash_comp` | 30 | Strength of baro downwash handling (noise inflation, per-thrust-direction bias). 0 = off |
 | `position_est_q_baro_bias` | 400 | Baro bias random walk, cm²/s |
-| `position_est_r_gps_vvel` | 400 | GPS Doppler vertical velocity noise, (cm/s)² at DOP 1 |
+| `position_est_r_gps_vvel` | 400 | GPS Doppler vertical velocity noise floor, (cm/s)²; the receiver's sAcc² is used when larger |
+| `position_est_q_terrain` | 200 | Terrain offset random walk, cm² per metre flown |
 
 ### 3.4 Mode and debug
 

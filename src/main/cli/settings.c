@@ -207,7 +207,7 @@ static const char * const lookupTableGyro[] = {
 
 #ifdef USE_GPS
 static const char * const lookupTableGPSProvider[] = {
-    "NMEA", "UBLOX", "MSP", "FBUS"
+    "NMEA", "UBLOX", "MSP", "FBUS", "CRSF"
 };
 
 static const char * const lookupTableGPSSBASMode[] = {

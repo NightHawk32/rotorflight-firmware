@@ -159,7 +159,7 @@ enum {
 
 // DEBUG_POS_EST_XY[7] flag bits (flow status in bits 8+)
 #define POS_EST_XY_VALID            (1 << 0)
-#define POS_EST_XY_GPS_FRESH        (1 << 1)
+#define POS_EST_XY_GPS_FRESH        (1 << 1)   // GPS fused within XY_GPS_TIMEOUT_MS
 #define POS_EST_XY_FLOW_FRESH       (1 << 2)
 #define POS_EST_XY_CLAMPED          (1 << 3)
 #define POS_EST_XY_GPS_ORIGIN       (1 << 4)
@@ -173,9 +173,14 @@ enum {
 #define R_GPS_ALT_BASE              60000.0f    // cm^2 at DOP 1.0, floor with vAcc
 #define GRAVITY_CMSS                980.665f
 #define GPS_DOP_MIN_VALID           100         // DOP is stored *100; below 1.0 is unset
-#define GPS_DOP_UNKNOWN_R_SCALE     100.0f      // unknown DOP: 10x stddev, 100x variance
 #define Z_MEASUREMENT_TIMEOUT_MS    2000
-#define XY_MEASUREMENT_TIMEOUT_MS   500
+#define XY_MEASUREMENT_TIMEOUT_MS   500     // flow
+#define XY_GPS_TIMEOUT_MS           2000    // GPS: a CRSF/FBUS GPS may only report at 1 Hz
+// Accuracy assumed for a GPS that reports neither an accuracy estimate nor
+// a DOP (CRSF sensor GPS): 1 sigma, cm and cm/s
+#define GPS_ASSUMED_HACC_CM         250
+#define GPS_ASSUMED_VACC_CM         400
+#define GPS_ASSUMED_SACC_CMS        40
 // cm per 1e-7 degree of latitude (111.3195 km per degree)
 #define EARTH_CM_PER_DEG7           1.113195f
 
@@ -304,7 +309,7 @@ typedef struct {
     timeMs_t    lastFlowFuseMs;
     timeMs_t    lastFlowSampleMs;
     uint8_t     flowStatus;     // FLOW_STATUS_* of the latest sample
-    bool        gpsFresh;       // GPS fused within XY_MEASUREMENT_TIMEOUT_MS
+    bool        gpsFresh;       // GPS fused within XY_GPS_TIMEOUT_MS
     bool        flowFresh;      // flow fused within XY_MEASUREMENT_TIMEOUT_MS
     bool        clamped;        // dead-reckoning clamp applied this step
     float       flowVelEast;    // last fused flow velocity (cm/s)
@@ -470,18 +475,19 @@ static void getLinearAccelENU(float *accelEast, float *accelNorth, float *accelU
  *
  * With u-blox the receiver reports a 1-sigma accuracy estimate per fix
  * (hAcc/vAcc/sAcc); its square is the variance directly, and the configured
- * value only acts as a floor.  Without one (NMEA) the configured value is
- * scaled by DOP^2.  Unknown/implausibly low DOP must not be treated as
- * excellent GPS, otherwise GPS would dominate optical-flow fusion.
+ * value only acts as a floor.  Without one but with a DOP (NMEA) the
+ * configured value is scaled by DOP^2.  With neither (CRSF sensor GPS) a
+ * typical accuracy is assumed: an unknown-quality GPS must not be treated
+ * as excellent, otherwise it would dominate optical-flow fusion.
  */
-static float gpsMeasurementR(float baseR, uint16_t dop, uint16_t accuracy)
+static float gpsMeasurementR(float baseR, uint16_t dop, uint16_t accuracy, uint16_t assumedAccuracy)
 {
     if (accuracy > 0) {
         return fmaxf(baseR, (float)accuracy * (float)accuracy);
     }
 
     if (dop < GPS_DOP_MIN_VALID) {
-        return baseR * GPS_DOP_UNKNOWN_R_SCALE;
+        return fmaxf(baseR, (float)assumedAccuracy * (float)assumedAccuracy);
     }
 
     const float dopScale = dop * 0.01f;
@@ -661,13 +667,13 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
 
         const float gpsAltCm = gpsSol.llh.altCm - alt.gpsAltOffset * 100.0f;
         alt.dbgGpsCm = gpsAltCm;
-        const float gpsAltR = gpsMeasurementR(R_GPS_ALT_BASE, gpsSol.hdop, gpsSol.vAcc);
+        const float gpsAltR = gpsMeasurementR(R_GPS_ALT_BASE, gpsSol.hdop, gpsSol.vAcc, GPS_ASSUMED_VACC_CM);
         altKalmanUpdate(&alt.kfUp, H_ALT, gpsAltCm, gpsAltR, 0.0f, NULL);
 
         // Doppler vertical velocity: unaffected by downwash and far less
         // noisy than differentiated GPS altitude
         if (armed && GPS_velDownValid) {
-            const float velR = gpsMeasurementR(positionConfig()->est_r_gps_vvel, gpsSol.hdop, gpsSol.sAcc);
+            const float velR = gpsMeasurementR(positionConfig()->est_r_gps_vvel, gpsSol.hdop, gpsSol.sAcc, GPS_ASSUMED_SACC_CMS);
             altKalmanUpdate(&alt.kfUp, H_VEL, -(float)GPS_velDownCms, velR, 0.0f, NULL);
         }
 
@@ -829,7 +835,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
         const float north = (gpsSol.llh.lat - posxy.originLat) * EARTH_CM_PER_DEG7;
         const float east  = (gpsSol.llh.lon - posxy.originLon) * EARTH_CM_PER_DEG7 * posxy.lonScale;
 
-        const float rPos = gpsMeasurementR(positionConfig()->est_r_gps_pos, gpsSol.hdop, gpsSol.hAcc);
+        const float rPos = gpsMeasurementR(positionConfig()->est_r_gps_pos, gpsSol.hdop, gpsSol.hAcc, GPS_ASSUMED_HACC_CM);
         kalmanUpdatePosition(&posxy.kfEast, east, rPos);
         kalmanUpdatePosition(&posxy.kfNorth, north, rPos);
 
@@ -848,7 +854,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             velEast = speedCms * sin_approx(courseRad);
             velNorth = speedCms * cos_approx(courseRad);
         }
-        const float rVel = gpsMeasurementR(positionConfig()->est_r_gps_vel, gpsSol.hdop, gpsSol.sAcc);
+        const float rVel = gpsMeasurementR(positionConfig()->est_r_gps_vel, gpsSol.hdop, gpsSol.sAcc, GPS_ASSUMED_SACC_CMS);
         kalmanUpdateVelocity(&posxy.kfEast, velEast, rVel);
         kalmanUpdateVelocity(&posxy.kfNorth, velNorth, rVel);
 
@@ -970,7 +976,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
 
     const bool gpsFresh =
 #ifdef USE_GPS
-        posxy.lastGpsFuseMs != 0 && (nowMs - posxy.lastGpsFuseMs) < XY_MEASUREMENT_TIMEOUT_MS;
+        posxy.lastGpsFuseMs != 0 && (nowMs - posxy.lastGpsFuseMs) < XY_GPS_TIMEOUT_MS;
 #else
         false;
 #endif

@@ -79,6 +79,7 @@ Do them in this order. Each one builds on the previous one.
 | 1 | Flow signs (bench, props off) | `OPTICAL_FLOW` | Hold the model level ~1 m over a textured floor. Slide it **forward** 1 m, back, then **right** 1 m, back. Then, without moving it, pitch it forward/back and roll it left/right by ~20°. |
 | 2 | LIDAR chain | `RANGEFINDER` | Hover at 0.5, 1, 2, 4 m, each for ~10 s. Fly slowly over an edge (table, step, kerb). |
 | 3 | Altitude estimator | `POS_EST_Z` | Hover, slow climbs/descents of 5–10 m, several sharp collective punches up and down, fast cyclic (flips/rolls) if you fly them. Outdoors with a GPS fix, and once without GPS if possible. |
+| 3b | Terrain | `POS_EST_TERRAIN` | Hover 20 s over one spot at ~1.5 m, then fly slowly over a step (table, kerb, bank) and back, then a 20 m traverse over flat ground at ~2 m/s. |
 | 4 | Altitude Hold | `ALTHOLD` | Hover, ALTHOLD on, hands off collective for 20 s. Then collective up ~1 s, release, wait 10 s; same down. Repeat once at a different height. |
 | 5 | Horizontal estimator | `POS_EST_XY` | Manual hover (no POSHOLD) for 20 s, then translate 5 m forward and back, 5 m right and back, and a slow 360° pirouette. |
 | 6 | Position Hold | `POSHOLD` | ALTHOLD + POSHOLD on, hands off for 30 s. Push cyclic in each direction for ~1 s and release. Yaw 90° and repeat one push. |
@@ -113,9 +114,14 @@ Test 1 expectation: the estimator only fuses flow while **armed**, so on a
 disarmed bench fields 3-7 do not update. Use the raw fields: sliding
 **forward** must make field 0 positive, and sliding **right** must make field 1
 negative (Y points left). The configurator's Position & Hold tab shows the same
-check as an arrow. If pitching or rolling in place moves fields 0 and 1 in step
-with gyro pitch and roll, the module is not compensating for rotation. Fields
-5/6 can be checked the same way when armed with props off.
+check as an arrow. Pitching or rolling in place moves fields 0 and 1 in step
+with gyro pitch and roll: the module does not compensate for rotation, the
+estimator does (`position_flow_gyro_comp`). Check that part **armed with props
+off**: fields 5/6 (velocity after compensation) must stay near zero while
+rotating in place. If they move about as much as without compensation but with
+the opposite sign, set `position_flow_gyro_comp = -100`; if they still move
+with the same sign, the module axes do not match the body frame (mounting or
+module orientation setting).
 
 ### `RANGEFINDER`
 
@@ -135,15 +141,33 @@ with gyro pitch and roll, the module is not compensating for rotation. Fields
 | --- | --- | --- |
 | 0 | Fused altitude | Filter state |
 | 1 | Fused vertical velocity | Filter state |
-| 2 | Baro measurement | Baro minus arm offset, **before** bias removal. Filter view of baro = field 2 − field 5 |
+| 2 | Baro measurement | Raw baro sample minus arm offset, **before** bias removal, updated once per baro sample. Filter view of baro = field 2 − field 5 |
 | 3 | GPS altitude measurement | Last fused GPS altitude minus arm offset |
-| 4 | Rangefinder measurement | Last fused AGL, aligned to the arm frame |
+| 4 | Rangefinder measurement | Last fused AGL, aligned to the arm frame. The filter compares it with field 0 − terrain (`POS_EST_TERRAIN` field 4) |
 | 5 | Baro bias | Filter state (downwash error) |
 | 6 | Altitude 1σ | √P, cm |
 | 7 | Flags ×1000 + disturbance ×100 | Decode: `flags = v / 1000`, `disturbance = (v % 1000) / 100`. Flags: 1 anchor fresh (bias can be learned), 2 inverted thrust bias active, 4 last baro sample rejected by the 5σ gate, 8 baro available |
 
 The IMU acceleration input is not logged separately. It can be reconstructed from
 `acc` and `attitude`.
+
+### `POS_EST_TERRAIN` (rangefinder into the Z filter, 100 Hz)
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| 0 | Rangefinder raw distance | cm, median filtered |
+| 1 | AGL altitude | cm, tilt compensated |
+| 2 | Rangefinder measurement | As fused: AGL − alignment offset (field 7) |
+| 3 | Rangefinder innovation | Measurement − (altitude − terrain), cm. Large values while hovering mean the lidar and the IMU/baro disagree |
+| 4 | Terrain offset | Filter state: ground height under the model relative to the arm point, cm |
+| 5 | Terrain 1σ | √P, cm. Grows while moving, shrinks with each lidar sample |
+| 6 | Horizontal speed used | cm/s, drives the terrain random walk (0 = terrain frozen) |
+| 7 | Alignment offset | `rfAltOffset`, cm, set on the first valid sample after arming |
+
+Test 3b expectation: over one spot fields 4 and 5 stay flat. Over a step, field 4
+follows the step within about a second while `POS_EST_Z` field 0 stays level.
+If the fused altitude follows the step instead, raise `position_est_q_terrain`;
+if field 4 wanders on flat ground, lower it.
 
 ### `ALTHOLD`
 
@@ -225,9 +249,10 @@ Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
 | `position_source` | `position_alt_source`, `position_xy_source` (enum index) |
 | `position_lpf` | `position_baro_alt_lpf`, `_baro_offset_lpf`, `_gps_alt_lpf`, `_gps_offset_lpf`, `_vario_lpf` |
 | `position_gps_min_sats` | `position_gps_min_sats` |
-| `position_est_q` | `position_est_q_accel_xy`, `_q_accel_z`, `_q_baro_bias` |
+| `position_est_q` | `position_est_q_accel_xy`, `_q_accel_z`, `_q_baro_bias`, `_q_terrain` |
 | `position_est_r` | `position_est_r_baro_alt`, `_r_lidar_alt`, `_r_gps_pos`, `_r_gps_vel`, `_r_flow_vel`, `_r_gps_vvel` |
 | `position_baro_downwash_comp` | `position_baro_downwash_comp` |
+| `position_flow_gyro_comp` | `position_flow_gyro_comp` |
 | `rangefinder_hardware`, `optical_flow_hardware` | Enum index |
 | `pid_rate_hz` | PID loop rate |
 
@@ -243,4 +268,6 @@ The existing header lines (PIDs, filters, `debug_mode`, …) are unchanged.
   field 0.
 - Blackbox Explorer does not know the new debug modes. It shows them as
   `debug[0]` … `debug[7]`; use the tables above.
-- GPS Doppler vertical velocity (u-blox) is fused but not logged.
+- GPS Doppler vertical velocity, the N/E velocity and the accuracy estimates
+  (u-blox) are fused but not logged. The `gps_provider` header line tells
+  whether they existed at all (`UBLOX` only).

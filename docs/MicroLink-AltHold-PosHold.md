@@ -22,11 +22,12 @@ MicroLink MTF-01/MTF-02 module.
 | Altitude Hold | New, fully implemented cascade-PID altitude-hold controller (`flight/althold.*`) that prefers LIDAR AGL altitude when available and falls back to baro/GPS altitude |
 | Position Hold | New feature (`flight/poshold.*`): a cascade-PID horizontal position-hold controller (P+I velocity loop) driven by the fused XY position/velocity estimate |
 | New flight mode | `BOXPOSHOLD` / `POSHOLD_MODE` — new arming-mode box, requires `ALTHOLD_MODE` to also be active and a valid XY position estimate |
-| Position estimator | `flight/position.c` now runs Kalman filters (`flight/kalman.*`): a 3-state vertical filter (altitude, vertical velocity, baro downwash bias) fed by IMU, baro, GPS and rangefinder, and East/North filters fed by IMU, GPS position/velocity and optical-flow velocity. Also an AGL (rangefinder) altitude estimate |
+| Position estimator | `flight/position.c` now runs Kalman filters (`flight/kalman.*`): a 4-state vertical filter (altitude, vertical velocity, baro downwash bias, terrain offset) fed by IMU, baro, GPS and rangefinder, and East/North filters fed by IMU, GPS position/velocity and gyro-compensated optical-flow velocity. Also an AGL (rangefinder) altitude estimate |
 | New task | `TASK_OPTICAL_FLOW` @ 50 Hz polls/parses the MicroLink UART stream |
-| New debug modes | `DEBUG_OPTICAL_FLOW`, `DEBUG_ALTHOLD`, `DEBUG_POSHOLD`, `DEBUG_HARDDECK` |
+| New debug modes | `DEBUG_OPTICAL_FLOW`, `DEBUG_ALTHOLD`, `DEBUG_POSHOLD`, `DEBUG_HARDDECK`, `DEBUG_POS_EST_Z`, `DEBUG_POS_EST_XY`, `DEBUG_POS_EST_TERRAIN` |
 | Hard deck | New training feature (`flight/harddeck.*`, box `HARD DECK`): keeps the helicopter above a set altitude, recovering from any attitude and holding position — see [HardDeck.md](HardDeck.md) |
-| New serial function | `FUNCTION_MICROLINK` (bit 22) — assign a UART to the MicroLink sensor |
+| New serial function | `FUNCTION_MICROLINK` (bit 23) — assign a UART to the MicroLink sensor |
+| GPS provider | `gps_provider = CRSF` takes GPS from a CRSF sensor accessory (upstream's `FUNCTION_CRSF_SENSORS` port, bit 22). See [§3.1b](#31b-gps-providers) |
 | New PID-profile fields | `pidProfile.althold.*`, `pidProfile.poshold.*` and `pidProfile.harddeck.*` gain/limit structs (see below) |
 | Settings reset | `PG_PID_PROFILE` and `PG_POSITION` versions were bumped, so flashing this firmware **resets all PID profiles and `position_*` settings to defaults**. Save a `diff all` before flashing |
 
@@ -135,23 +136,40 @@ flowchart TD
 | --- | --- | --- |
 | `position_est_q_accel_xy` | 50000 | Horizontal accel process noise, (cm/s²)² |
 | `position_est_q_accel_z` | 20000 | Vertical accel process noise, (cm/s²)² |
-| `position_est_r_baro_alt` | 1500 | Baro altitude noise, cm² |
+| `position_est_r_baro_alt` | 600 | Baro altitude noise per raw sample, cm² |
 | `position_est_r_lidar_alt` | 100 | Rangefinder altitude noise, cm² |
-| `position_est_r_gps_pos` | 500 | GPS position noise at HDOP 1, cm² |
-| `position_est_r_gps_vel` | 100 | GPS velocity noise at HDOP 1, (cm/s)² |
+| `position_est_r_gps_pos` | 500 | GPS position noise floor, cm². u-blox: the receiver's hAcc² is used when larger. NMEA: scaled by HDOP². CRSF: floor under an assumed 2.5 m |
+| `position_est_r_gps_vel` | 100 | GPS velocity noise floor, (cm/s)². u-blox: sAcc². NMEA: ×HDOP². CRSF: assumed 0.4 m/s |
 | `position_est_r_flow_vel` | 400 | Optical-flow velocity noise at best quality, (cm/s)² |
-| `position_est_r_gps_vvel` | 400 | GPS Doppler vertical velocity noise at DOP 1, (cm/s)² (u-blox only) |
+| `position_est_r_gps_vvel` | 400 | GPS Doppler vertical velocity noise floor, (cm/s)² (u-blox only) |
 | `position_est_q_baro_bias` | 400 | Baro downwash bias random walk, cm²/s |
+| `position_est_q_terrain` | 200 | Terrain offset random walk, cm² per metre flown. Lets the LIDAR follow ground-height changes while moving without pulling the fused altitude; 0 freezes it |
+| `position_flow_gyro_comp` | 100 | Optical-flow body-rate compensation, % (−200…200). 100 = physical value, 0 = off, negative for a module whose axes are mirrored. Verify with test 1 of the tuning doc |
 | `position_baro_downwash_comp` | 30 | Baro downwash handling strength (×10), 0 = off. See [HardDeck.md](HardDeck.md#2-altitude-estimation-baro-in-the-downwash-gps-and-imu) |
 
 `position_vario_lpf` still exists but no longer has any effect: the vario now
-comes from the Kalman filter.
+comes from the Kalman filter. `position_baro_alt_lpf` only affects the
+arm-point offset tracking and the `ALTITUDE` debug fields; the filter fuses the
+raw baro sample.
+
+### 3.1b GPS providers
+
+| `gps_provider` | Source | Quality information used by the estimator |
+| --- | --- | --- |
+| `UBLOX` | Serial GPS | hAcc/vAcc/sAcc per fix, Doppler N/E/D velocity. Best case |
+| `NMEA` | Serial GPS | HDOP only |
+| `MSP`, `FBUS` | As on master | HDOP 1.0 assumed by the transport |
+| `CRSF` (new) | GPS frames from a CRSF sensor accessory on the `FUNCTION_CRSF_SENSORS` port (bit 22, `crsf_sensors_*` settings) | None. Assumed 2.5 m / 4 m / 0.4 m/s. A 3D fix is assumed at 4 or more satellites. Set `position_gps_min_sats` to what the accessory reports in practice |
+
+A CRSF GPS may report at only 1 Hz. The estimator keeps GPS as the position
+anchor for 2 s after each fix, so this works, but the IMU dead-reckons in
+between and the position σ (`POS_EST_XY` field 6) breathes at the fix rate.
 
 ### 3.2 New serial port function
 
 | Function | Bit | Notes |
 | --- | --- | --- |
-| `FUNCTION_MICROLINK` | `1 << 22` (4194304) | Assign to the UART physically connected to the MicroLink module. Fixed at 115200 baud 8N1, opened internally by the optical-flow driver — you do not choose the baud rate via the `serial` command for this function |
+| `FUNCTION_MICROLINK` | `1 << 23` (8388608) | Assign to the UART physically connected to the MicroLink module. Fixed at 115200 baud 8N1, opened internally by the optical-flow driver — you do not choose the baud rate via the `serial` command for this function. Bit 22 is upstream's `FUNCTION_CRSF_SENSORS` |
 
 ### 3.3 New PID-profile CLI parameters
 
@@ -195,8 +213,8 @@ Hold actually work.
 
 ### 3.5 New debug modes
 
-`OPTICAL_FLOW`, `ALTHOLD`, `POSHOLD`, `HARDDECK`, `POS_EST_Z` and `POS_EST_XY`
-(set with `set debug_mode = <name>`). The rangefinder AGL chain is in fields 4-7
+`OPTICAL_FLOW`, `ALTHOLD`, `POSHOLD`, `HARDDECK`, `POS_EST_Z`, `POS_EST_XY` and
+`POS_EST_TERRAIN` (set with `set debug_mode = <name>`). The rangefinder AGL chain is in fields 4-7
 of the existing `RANGEFINDER` mode. Each mode holds everything needed for one
 tuning job; the field layouts and a blackbox test plan are in
 [Blackbox-Tuning-AltHold-PosHold.md](Blackbox-Tuning-AltHold-PosHold.md).
@@ -228,10 +246,10 @@ make TARGET=STM32F405 DEBUG=GDB -j4
 
 1. Identify a free UART (e.g. `UART3`) and assign the MicroLink function to it.
    Use the numeric identifier for your UART (see `docs/Serial.md`) and the
-   `FUNCTION_MICROLINK` bitmask (4194304). Baud-rate arguments are ignored for
+   `FUNCTION_MICROLINK` bitmask (8388608). Baud-rate arguments are ignored for
    this function but must still be supplied:
    ```
-   serial 2 4194304 115200 57600 0 115200
+   serial 2 8388608 115200 57600 0 115200
    save
    ```
    (Adjust `2` to the identifier of the UART you actually wired up.)
@@ -290,7 +308,7 @@ Test incrementally and always start props-off.
    - `DEBUG_OPTICAL_FLOW` fields 0/1 (flowX/flowY) change when you tilt/pan the
      module by hand, and field 2 (quality) is non-zero over textured surfaces.
 4. If nothing shows up: double-check UART wiring/TX-RX swap, that
-   `serial <n> 4194304 ...` and both `_hardware` settings were saved (`dump`),
+   `serial <n> 8388608 ...` and both `_hardware` settings were saved (`dump`),
    and that no other function is already assigned to that UART.
 
 ### 5.2 Bench test — altitude hold logic (props off, bench/gimbal)
@@ -397,6 +415,12 @@ since been fixed in the source:
   (right/forward) into earth frame (East/North) using `attitude.values.yaw`
   before being applied, so nudging the hold point moves it in the direction
   actually commanded regardless of heading.
+
+- **Optical flow was not compensated for the vehicle's own rotation**, the baro
+  was fused 1 Hz-filtered on every 100 Hz tick, the u-blox accuracy estimates
+  were dropped and the rangefinder was an absolute altitude after alignment.
+  All four are addressed in the sensor fusion rework; see
+  `SENSOR_FUSION_ARCHITECTURE.md` in the workspace root.
 
 ### Still open
 
