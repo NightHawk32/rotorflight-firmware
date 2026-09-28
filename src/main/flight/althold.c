@@ -70,6 +70,7 @@ typedef struct {
     float       velIterm;       // velocity integrator
     float       lastAlt;        // previous cycle's measurement (frame tracking)
     bool        usingAgl;       // which frame targetAlt is expressed in
+    bool        stickActive;    // collective outside the deadband this cycle
     bool        active;         // was mode active last cycle (for init)
 } altHoldState_t;
 
@@ -140,6 +141,7 @@ void altHoldUpdate(void)
     if (!altHoldEngaged()) {
         ah.active = false;
         ah.velIterm = 0;
+        ah.stickActive = false;
         return;
     }
 
@@ -175,7 +177,9 @@ void altHoldUpdate(void)
     // getRcDeflection returns -1..+1
     const float stickDeflection = getRcDeflection(FD_COLL);
 
-    if (fabsf(stickDeflection) > ah.stickDeadband) {
+    ah.stickActive = fabsf(stickDeflection) > ah.stickDeadband;
+
+    if (ah.stickActive) {
         // Outside deadband: pilot is commanding a climb/descent rate
         const float sign = (stickDeflection > 0) ? 1.0f : -1.0f;
         const float rate = (fabsf(stickDeflection) - ah.stickDeadband) /
@@ -186,14 +190,54 @@ void altHoldUpdate(void)
 }
 
 /*
+ * DEBUG_ALTHOLD: everything needed to tune the loop from one blackbox log.
+ * Terms are in collective units (0..1000) x10; the velocity command is
+ * clamp(alt_p * (target - alt), +-max_climb_rate) and not logged separately.
+ */
+#define AH_FLAG_ENGAGED         (1 << 0)
+#define AH_FLAG_USING_AGL       (1 << 1)
+#define AH_FLAG_SOURCE_VALID    (1 << 2)
+#define AH_FLAG_STICK           (1 << 3)    // pilot moving the target
+#define AH_FLAG_YIELDED         (1 << 4)    // mode on, but a rescue is in control
+
+static void altHoldDebug(float output, float Pterm, float Dterm, uint32_t flags)
+{
+    DEBUG(ALTHOLD, 0, lrintf(ah.targetAlt * 100));
+    DEBUG(ALTHOLD, 1, lrintf(getCurrentAlt() * 100));
+    DEBUG(ALTHOLD, 2, lrintf(getCurrentVario() * 100));
+    DEBUG(ALTHOLD, 3, lrintf(Pterm * 10));
+    DEBUG(ALTHOLD, 4, lrintf(ah.velIterm * 10));
+    DEBUG(ALTHOLD, 5, lrintf(Dterm * 10));
+    DEBUG(ALTHOLD, 6, lrintf(output));
+    DEBUG(ALTHOLD, 7, (int32_t)flags);
+}
+
+/*
  * Called from pidApplyCollective() in pid.c, after rescueApply().
  * Returns the altitude-hold collective override, or the incoming
  * (pilot or rescue) collective when the hold is not engaged.
  */
 float altHoldApply(float collective)
 {
+    uint32_t flags = 0;
+    if (usingAglSource()) {
+        flags |= AH_FLAG_USING_AGL;
+    }
+    if (altSourceIsValid()) {
+        flags |= AH_FLAG_SOURCE_VALID;
+    }
+
     if (!altHoldEngaged()) {
+        if (FLIGHT_MODE(ALTHOLD_MODE)) {
+            flags |= AH_FLAG_YIELDED;
+        }
+        altHoldDebug(collective, 0, 0, flags);
         return collective;
+    }
+
+    flags |= AH_FLAG_ENGAGED;
+    if (ah.stickActive) {
+        flags |= AH_FLAG_STICK;
     }
 
     const float tilt         = getCosTiltAngle();
@@ -202,7 +246,9 @@ float altHoldApply(float collective)
     if (!altSourceIsValid()) {
         // Hold the last trimmed hover point; do not close the loop on a
         // stale/absent altitude estimate.
-        return constrainf((ah.hoverCollective + ah.velIterm) * tiltFactor, 0.0f, 1000.0f);
+        const float output = constrainf((ah.hoverCollective + ah.velIterm) * tiltFactor, 0.0f, 1000.0f);
+        altHoldDebug(output, 0, 0, flags);
+        return output;
     }
 
     const float currentAlt   = getCurrentAlt();
@@ -228,10 +274,7 @@ float altHoldApply(float collective)
     float output = (ah.hoverCollective + Pterm + ah.velIterm + Dterm) * tiltFactor;
     output = constrainf(output, 0.0f, 1000.0f);
 
-    DEBUG(ALTHOLD, 4, (int32_t)(altError * 100));
-    DEBUG(ALTHOLD, 5, (int32_t)(velCmd * 100));
-    DEBUG(ALTHOLD, 6, (int32_t)output);
-    DEBUG(ALTHOLD, 7, (int32_t)(ah.targetAlt * 100));
+    altHoldDebug(output, Pterm, Dterm, flags);
 
     return output;
 }

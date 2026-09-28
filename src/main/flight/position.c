@@ -116,6 +116,30 @@
 // Beyond ~45 deg of tilt the flat-ground flow geometry (and the 1/cos^2 scale
 // factor) stops being trustworthy, so no flow sample is fused at all
 #define FLOW_MIN_COS_TILT           0.707f
+
+// Outcome of the latest optical-flow sample (DEBUG_OPTICAL_FLOW[7] and
+// DEBUG_POS_EST_XY[7] bits 8+): why a sample was or was not fused
+enum {
+    FLOW_STATUS_FUSED = 0,
+    FLOW_STATUS_DISABLED,       // position_xy_source = GPS_ONLY
+    FLOW_STATUS_NO_SENSOR,      // no sensor, or no sample for 500ms
+    FLOW_STATUS_NO_AGL,         // no valid rangefinder height to scale with
+    FLOW_STATUS_LOW_QUALITY,    // quality at or below FLOW_QUALITY_MIN
+    FLOW_STATUS_TILT,           // tilted beyond FLOW_MIN_COS_TILT
+};
+
+// DEBUG_POS_EST_Z[7] flag bits (x1000, disturbance x100 in the low digits)
+#define POS_EST_Z_ANCHOR_FRESH      (1 << 0)
+#define POS_EST_Z_INVERTED          (1 << 1)
+#define POS_EST_Z_BARO_GATED        (1 << 2)
+#define POS_EST_Z_HAVE_BARO         (1 << 3)
+
+// DEBUG_POS_EST_XY[7] flag bits (flow status in bits 8+)
+#define POS_EST_XY_VALID            (1 << 0)
+#define POS_EST_XY_GPS_FRESH        (1 << 1)
+#define POS_EST_XY_FLOW_FRESH       (1 << 2)
+#define POS_EST_XY_CLAMPED          (1 << 3)
+#define POS_EST_XY_GPS_ORIGIN       (1 << 4)
 // Maximum dead-reckoning radius (cm) while no absolute (GPS) anchor is active
 #define POSXY_MAX_DEADRECKONING_CM  1000.0f
 
@@ -188,6 +212,12 @@ typedef struct {
     uint8_t     thrustDir;
     uint8_t     baroRejects;
 
+    // Latest measurements as fused (cm, KF frame), for DEBUG_POS_EST_Z
+    float       dbgBaroCm;
+    float       dbgGpsCm;
+    float       dbgRfCm;
+    bool        baroGated;      // last baro sample rejected by the gate
+
 #ifdef USE_GPS
     uint32_t    lastGpsStampMs;
 #endif
@@ -234,6 +264,9 @@ typedef struct {
 
     timeMs_t    lastFlowFuseMs;
     timeMs_t    lastFlowSampleMs;
+    uint8_t     flowStatus;     // FLOW_STATUS_* of the latest sample
+    float       flowVelEast;    // last fused flow velocity (cm/s)
+    float       flowVelNorth;
 
 #ifdef USE_GPS
     timeMs_t    lastGpsFuseMs;
@@ -494,7 +527,10 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
             gate = 0.0f;
         }
 
-        if (altKalmanUpdate(&alt.kfUp, H_BARO, baroCm, baroR, gate)) {
+        alt.dbgBaroCm = baroCm;
+        alt.baroGated = !altKalmanUpdate(&alt.kfUp, H_BARO, baroCm, baroR, gate);
+
+        if (!alt.baroGated) {
             alt.baroRejects = 0;
         }
         else if (alt.baroRejects < 255) {
@@ -512,6 +548,7 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
         alt.lastGpsStampMs = gpsData.lastMessage;
 
         const float gpsAltCm = gpsSol.llh.altCm - alt.gpsAltOffset * 100.0f;
+        alt.dbgGpsCm = gpsAltCm;
         const float gpsAltR = gpsMeasurementR(R_GPS_ALT_BASE, gpsSol.hdop);
         altKalmanUpdate(&alt.kfUp, H_ALT, gpsAltCm, gpsAltR, 0.0f);
 
@@ -549,7 +586,8 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
             rfR *= 0.25f;   // stronger pull when the user prefers the lidar
         }
 
-        altKalmanUpdate(&alt.kfUp, H_ALT, rfAltCm - alt.rfAltOffset, rfR, 0.0f);
+        alt.dbgRfCm = rfAltCm - alt.rfAltOffset;
+        altKalmanUpdate(&alt.kfUp, H_ALT, alt.dbgRfCm, rfR, 0.0f);
         alt.lastZMeasMs = nowMs;
         alt.lastZAnchorMs = nowMs;
     }
@@ -566,6 +604,31 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
         alt.altitude = 0;
         alt.variometer = 0;
     }
+
+    // Everything needed to tune the Z filter from one blackbox log: the
+    // state, each measurement as fused, the bias, sigma and the downwash model
+    uint32_t zFlags = 0;
+    if (anchorFresh) {
+        zFlags |= POS_EST_Z_ANCHOR_FRESH;
+    }
+    if (alt.thrustDir == THRUST_INVERTED) {
+        zFlags |= POS_EST_Z_INVERTED;
+    }
+    if (alt.haveBaroAlt && alt.baroGated) {
+        zFlags |= POS_EST_Z_BARO_GATED;
+    }
+    if (alt.haveBaroAlt) {
+        zFlags |= POS_EST_Z_HAVE_BARO;
+    }
+
+    DEBUG(POS_EST_Z, 0, lrintf(altKalmanGetAltitude(&alt.kfUp)));
+    DEBUG(POS_EST_Z, 1, lrintf(altKalmanGetVelocity(&alt.kfUp)));
+    DEBUG(POS_EST_Z, 2, lrintf(alt.dbgBaroCm));
+    DEBUG(POS_EST_Z, 3, lrintf(alt.dbgGpsCm));
+    DEBUG(POS_EST_Z, 4, lrintf(alt.dbgRfCm));
+    DEBUG(POS_EST_Z, 5, lrintf(altKalmanGetBias(&alt.kfUp)));
+    DEBUG(POS_EST_Z, 6, lrintf(sqrtf(fmaxf(altKalmanGetAltitudeVariance(&alt.kfUp), 0.0f))));
+    DEBUG(POS_EST_Z, 7, (int32_t)(zFlags * 1000 + lrintf(alt.disturbance * 100)));
 }
 
 #ifdef USE_OPTICAL_FLOW
@@ -578,6 +641,9 @@ static void estimatorResetXY(void)
                positionConfig()->est_q_accel_xy);
     posxy.lastFlowFuseMs = 0;
     posxy.lastFlowSampleMs = 0;
+    posxy.flowStatus = FLOW_STATUS_NO_SENSOR;
+    posxy.flowVelEast = 0;
+    posxy.flowVelNorth = 0;
     posxy.posX = 0;
     posxy.posY = 0;
     posxy.velX = 0;
@@ -596,6 +662,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
 
     if (!armed) {
         posxy.valid = false;
+        DEBUG(POS_EST_XY, 7, 0);
         return;
     }
 
@@ -637,15 +704,31 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
 #endif
 
     // --- Optical flow velocity: fused once per new sample ---
-    if (xySource != XY_SOURCE_GPS_ONLY &&
-        sensors(SENSOR_OPTICAL_FLOW) && opticalFlowIsHealthy() &&
-        isAGLAltitudeValid() &&
-        opticalFlowGetLastUpdateMs() != posxy.lastFlowSampleMs)
-    {
+    if (xySource == XY_SOURCE_GPS_ONLY) {
+        posxy.flowStatus = FLOW_STATUS_DISABLED;
+    }
+    else if (!sensors(SENSOR_OPTICAL_FLOW) || !opticalFlowIsHealthy()) {
+        posxy.flowStatus = FLOW_STATUS_NO_SENSOR;
+    }
+    else if (opticalFlowGetLastUpdateMs() != posxy.lastFlowSampleMs) {
         posxy.lastFlowSampleMs = opticalFlowGetLastUpdateMs();
 
         const uint8_t quality = opticalFlowGetLatestQuality();
-        if (quality > FLOW_QUALITY_MIN) {
+
+        // Beyond ~45 deg of tilt the flat-ground geometry below stops being
+        // trustworthy, so such samples are not fused at all
+        const float cosTilt = getCosTiltAngle();
+
+        if (!isAGLAltitudeValid()) {
+            posxy.flowStatus = FLOW_STATUS_NO_AGL;
+        }
+        else if (quality <= FLOW_QUALITY_MIN) {
+            posxy.flowStatus = FLOW_STATUS_LOW_QUALITY;
+        }
+        else if (cosTilt < FLOW_MIN_COS_TILT) {
+            posxy.flowStatus = FLOW_STATUS_TILT;
+        }
+        else {
             // Continuous quality->noise scaling on top of the hard floor above
             const float qualityNorm = constrainf(
                 (float)(quality - FLOW_QUALITY_MIN) / (255.0f - FLOW_QUALITY_MIN),
@@ -665,46 +748,44 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             //     w = v * cos(t) / D    =>    v = w * D / cos(t) = w * h / cos(t)^2
             //
             // so the flow scales with the VERTICAL height and is *divided* by
-            // cos(t)^2.  The previous code scaled by the raw slant range and
-            // then multiplied by cos(t), i.e. it applied cos(t)^2 the wrong
-            // way and was off by cos(t)^4 (-24% at 20 deg of tilt).
+            // cos(t)^2.
             //
             // h comes from getAGLAltitude() rather than the driver's raw lidar
             // reading: it is median-filtered, range-gated and tilt-compensated
             // in sensors/rangefinder.c, so one bad lidar sample cannot spike
             // the velocity estimate.
-            const float cosTilt = getCosTiltAngle();
+            const float heightM = getAGLAltitude();
+            const float flowScale = heightM / (cosTilt * cosTilt);
 
-            if (cosTilt >= FLOW_MIN_COS_TILT) {
-                const float heightM = getAGLAltitude();
-                const float flowScale = heightM / (cosTilt * cosTilt);
+            // Body frame is x-forward, y-left (FLU, matching rMat's NWU
+            // convention); the sensor must be mounted/configured
+            // accordingly - verify signs with the debug values before
+            // first flight.
+            const float velFwd   =  opticalFlowGetLatestX() * flowScale;
+            const float velRight = -opticalFlowGetLatestY() * flowScale;
 
-                // Body frame is x-forward, y-left (FLU, matching rMat's NWU
-                // convention); the sensor must be mounted/configured
-                // accordingly - verify signs with the debug values before
-                // first flight.
-                const float velFwd   =  opticalFlowGetLatestX() * flowScale;
-                const float velRight = -opticalFlowGetLatestY() * flowScale;
+            // Rotate heading frame -> earth frame (yaw is compass convention)
+            const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
+            const float cosYaw = cos_approx(yawRad);
+            const float sinYaw = sin_approx(yawRad);
+            const float velEast  = velFwd * sinYaw + velRight * cosYaw;
+            const float velNorth = velFwd * cosYaw - velRight * sinYaw;
 
-                // Rotate heading frame -> earth frame (yaw is compass convention)
-                const float yawRad = DECIDEGREES_TO_RADIANS(attitude.values.yaw);
-                const float cosYaw = cos_approx(yawRad);
-                const float sinYaw = sin_approx(yawRad);
-                const float velEast  = velFwd * sinYaw + velRight * cosYaw;
-                const float velNorth = velFwd * cosYaw - velRight * sinYaw;
+            kalmanUpdateVelocity(&posxy.kfEast, velEast, flowR);
+            kalmanUpdateVelocity(&posxy.kfNorth, velNorth, flowR);
 
-                kalmanUpdateVelocity(&posxy.kfEast, velEast, flowR);
-                kalmanUpdateVelocity(&posxy.kfNorth, velNorth, flowR);
+            posxy.lastFlowFuseMs = nowMs;
+            posxy.flowStatus = FLOW_STATUS_FUSED;
+            posxy.flowVelEast = velEast;
+            posxy.flowVelNorth = velNorth;
 
-                posxy.lastFlowFuseMs = nowMs;
-
-                DEBUG(OPTICAL_FLOW, 3, (int32_t)velEast);
-                DEBUG(OPTICAL_FLOW, 4, (int32_t)velNorth);
-                DEBUG(OPTICAL_FLOW, 5, (int32_t)(heightM * 100));
-                DEBUG(OPTICAL_FLOW, 6, (int32_t)(flowScale * 100));
-            }
+            DEBUG(OPTICAL_FLOW, 3, lrintf(heightM * 100));
+            DEBUG(OPTICAL_FLOW, 4, lrintf(flowScale * 100));
+            DEBUG(OPTICAL_FLOW, 5, lrintf(velFwd));
+            DEBUG(OPTICAL_FLOW, 6, lrintf(velRight));
         }
     }
+    DEBUG(OPTICAL_FLOW, 7, posxy.flowStatus);
 
     const bool gpsFresh =
 #ifdef USE_GPS
@@ -719,6 +800,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     // is velocity-integrated only, so clamp its radius.  Never applied while
     // GPS is anchoring - flying further than this from the arm point is then
     // perfectly legitimate.
+    bool clamped = false;
     if (!gpsFresh) {
         const float px = kalmanGetPosition(&posxy.kfEast);
         const float py = kalmanGetPosition(&posxy.kfNorth);
@@ -727,6 +809,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             const float scale = POSXY_MAX_DEADRECKONING_CM / dist;
             posxy.kfEast.x[0] *= scale;
             posxy.kfNorth.x[0] *= scale;
+            clamped = true;
         }
     }
 
@@ -736,6 +819,37 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     posxy.posY = kalmanGetPosition(&posxy.kfNorth);
     posxy.velX = kalmanGetVelocity(&posxy.kfEast);
     posxy.velY = kalmanGetVelocity(&posxy.kfNorth);
+
+    // Everything needed to tune the XY filters from one blackbox log.  GPS
+    // position/speed/course are in the blackbox GPS frames already.
+    uint32_t xyFlags = (uint32_t)posxy.flowStatus << 8;
+    if (posxy.valid) {
+        xyFlags |= POS_EST_XY_VALID;
+    }
+    if (gpsFresh) {
+        xyFlags |= POS_EST_XY_GPS_FRESH;
+    }
+    if (flowFresh) {
+        xyFlags |= POS_EST_XY_FLOW_FRESH;
+    }
+    if (clamped) {
+        xyFlags |= POS_EST_XY_CLAMPED;
+    }
+#ifdef USE_GPS
+    if (posxy.originSet) {
+        xyFlags |= POS_EST_XY_GPS_ORIGIN;
+    }
+#endif
+
+    DEBUG(POS_EST_XY, 0, lrintf(posxy.posX));
+    DEBUG(POS_EST_XY, 1, lrintf(posxy.posY));
+    DEBUG(POS_EST_XY, 2, lrintf(posxy.velX));
+    DEBUG(POS_EST_XY, 3, lrintf(posxy.velY));
+    DEBUG(POS_EST_XY, 4, lrintf(posxy.flowVelEast));
+    DEBUG(POS_EST_XY, 5, lrintf(posxy.flowVelNorth));
+    DEBUG(POS_EST_XY, 6, lrintf(sqrtf(fmaxf(0.5f * (kalmanGetPositionVariance(&posxy.kfEast) +
+                                                   kalmanGetPositionVariance(&posxy.kfNorth)), 0.0f))));
+    DEBUG(POS_EST_XY, 7, (int32_t)xyFlags);
 }
 
 #endif // USE_OPTICAL_FLOW
@@ -886,10 +1000,11 @@ void positionUpdate(void)
         agl.reliability = 0.0f;
     }
 
-    DEBUG(ALTHOLD, 0, agl.aglAlt * 100);
-    DEBUG(ALTHOLD, 1, agl.aglVario * 100);
-    DEBUG(ALTHOLD, 2, (int32_t)(agl.reliability * 1000));
-    DEBUG(ALTHOLD, 3, rangefinderGetLatestAltitude());
+    // Fields 1-3 are written by sensors/rangefinder.c
+    DEBUG(RANGEFINDER, 4, lrintf(agl.aglAlt * 100));
+    DEBUG(RANGEFINDER, 5, lrintf(agl.aglVario * 100));
+    DEBUG(RANGEFINDER, 6, lrintf(agl.reliability * 1000));
+    DEBUG(RANGEFINDER, 7, isAGLAltitudeValid() ? 1 : 0);
 #endif
 
     // --- Kalman estimator (decimated to 100Hz internally) ---
@@ -921,15 +1036,6 @@ void positionUpdate(void)
     DEBUG(ALTITUDE, 6, gpsSol.llh.altCm);
     DEBUG(ALTITUDE, 7, gpsSol.numSat);
 
-#ifdef USE_OPTICAL_FLOW
-    DEBUG(POSHOLD, 0, (int32_t)posxy.posX);
-    DEBUG(POSHOLD, 1, (int32_t)posxy.posY);
-    DEBUG(POSHOLD, 2, (int32_t)posxy.velX);
-    DEBUG(POSHOLD, 3, (int32_t)posxy.velY);
-    DEBUG(POSHOLD, 4, posxy.valid ? 1 : 0);
-    DEBUG(POSHOLD, 5, opticalFlowGetLatestQuality());
-    // 6 and 7 are written by posHoldUpdate() later in the same cycle.
-#endif
 }
 
 void INIT_CODE positionInit(void)

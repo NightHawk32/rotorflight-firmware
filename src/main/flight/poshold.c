@@ -71,6 +71,14 @@ bool posHoldIsActive(void)
     return ph.active;
 }
 
+// While disengaged all DEBUG_POSHOLD fields read 0
+static void posHoldDebugClear(void)
+{
+    for (int i = 0; i < 8; i++) {
+        DEBUG_SET(DEBUG_POSHOLD, i, 0);
+    }
+}
+
 void posHoldUpdate(void)
 {
     // Clear output every cycle; only fill it when mode is active and valid
@@ -79,12 +87,14 @@ void posHoldUpdate(void)
 
     if (!ARMING_FLAG(ARMED) || !FLIGHT_MODE(POSHOLD_MODE)) {
         ph.active = false;
+        posHoldDebugClear();
         return;
     }
 
     // Safety: require optical flow XY estimate and altitude hold
     if (!isPositionXYValid() || !FLIGHT_MODE(ALTHOLD_MODE)) {
         ph.active = false;
+        posHoldDebugClear();
         return;
     }
 
@@ -193,8 +203,15 @@ void posHoldUpdate(void)
     posHoldAngle[AI_ROLL]  = (int32_t)(angleDegRoll  * 100.0f);
     posHoldAngle[AI_PITCH] = (int32_t)(angleDegPitch * 100.0f);
 
-    // positionUpdate() runs earlier in the same cycle and owns DEBUG_POSHOLD
-    // 0..5 (estimated position/velocity); only 6 and 7 are ours to write.
+    // Everything needed to tune the loop from one blackbox log (earth frame
+    // E/N, angles in centidegrees).  The velocity command is
+    // clamp(pos_p * posErr, +-max_horiz_speed) and not logged separately.
+    DEBUG(POSHOLD, 0, lrintf(posErrX));
+    DEBUG(POSHOLD, 1, lrintf(posErrY));
+    DEBUG(POSHOLD, 2, lrintf(getVelocityXCms()));
+    DEBUG(POSHOLD, 3, lrintf(getVelocityYCms()));
+    DEBUG(POSHOLD, 4, lrintf(ph.iTermEast * 100));
+    DEBUG(POSHOLD, 5, lrintf(ph.iTermNorth * 100));
     DEBUG(POSHOLD, 6, posHoldAngle[AI_ROLL]);
     DEBUG(POSHOLD, 7, posHoldAngle[AI_PITCH]);
 }
