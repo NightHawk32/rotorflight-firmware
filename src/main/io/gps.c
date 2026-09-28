@@ -1579,8 +1579,8 @@ static bool UBLOX_parse_gps(void)
         gpsSol.llh.lon = _buffer.posllh.longitude;
         gpsSol.llh.lat = _buffer.posllh.latitude;
         gpsSol.llh.altCm = _buffer.posllh.altitudeMslMm / 10;  //alt in cm
-        gpsSol.hAcc = MIN(_buffer.posllh.horizontal_accuracy / 10, UINT16_MAX);  // mm -> cm
-        gpsSol.vAcc = MIN(_buffer.posllh.vertical_accuracy / 10, UINT16_MAX);
+        gpsSol.hAcc = MIN(_buffer.posllh.horizontal_accuracy / 10, (uint32_t)UINT16_MAX);  // mm -> cm
+        gpsSol.vAcc = MIN(_buffer.posllh.vertical_accuracy / 10, (uint32_t)UINT16_MAX);
         gpsSetFixState(next_fix);
         _new_position = true;
         break;
@@ -1616,7 +1616,7 @@ static bool UBLOX_parse_gps(void)
         gpsSol.velN = _buffer.velned.ned_north;         // cm/s
         gpsSol.velE = _buffer.velned.ned_east;
         gpsSol.velNEValid = true;
-        gpsSol.sAcc = MIN(_buffer.velned.speed_accuracy, UINT16_MAX);  // cm/s
+        gpsSol.sAcc = MIN(_buffer.velned.speed_accuracy, (uint32_t)UINT16_MAX);  // cm/s
         _new_speed = true;
         break;
     case MSG_PVT:
@@ -1637,9 +1637,9 @@ static bool UBLOX_parse_gps(void)
         gpsSol.velN = _buffer.pvt.velN / 10;            // mm/s -> cm/s
         gpsSol.velE = _buffer.pvt.velE / 10;
         gpsSol.velNEValid = true;
-        gpsSol.hAcc = MIN(_buffer.pvt.hAcc / 10, UINT16_MAX);   // mm -> cm
-        gpsSol.vAcc = MIN(_buffer.pvt.vAcc / 10, UINT16_MAX);
-        gpsSol.sAcc = MIN(_buffer.pvt.sAcc / 10, UINT16_MAX);   // mm/s -> cm/s
+        gpsSol.hAcc = MIN(_buffer.pvt.hAcc / 10, (uint32_t)UINT16_MAX);   // mm -> cm
+        gpsSol.vAcc = MIN(_buffer.pvt.vAcc / 10, (uint32_t)UINT16_MAX);
+        gpsSol.sAcc = MIN(_buffer.pvt.sAcc / 10, (uint32_t)UINT16_MAX);   // mm/s -> cm/s
         _new_speed = true;
 #ifdef USE_RTC_TIME
         //set clock, when gps time is available
