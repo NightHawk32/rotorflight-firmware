@@ -245,6 +245,13 @@ bool baroIsReady(void)
     return baroReady && calibCycles == 0;
 }
 
+static uint32_t baroSampleCount;
+
+uint32_t baroGetSampleCount(void)
+{
+    return baroSampleCount;
+}
+
 bool baroIsCalibrationComplete(void)
 {
     return calibCycles == 0;
@@ -368,6 +375,7 @@ uint32_t baroUpdate(timeUs_t currentTimeUs)
 
             if (baroIsCalibrationComplete()) {
                 baro.baroAltitude = lrintf(pressureToAltitude(baroPressure) - baroGroundAltitude);
+                baroSampleCount++;
             }
             else {
                 performBaroCalibrationCycle();

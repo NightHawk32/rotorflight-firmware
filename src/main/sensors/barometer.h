@@ -41,3 +41,6 @@ void baroStartCalibration(void);
 void baroSetGroundLevel(void);
 void baroSetExternalAltitude(int32_t altitudeCm);
 uint32_t baroUpdate(timeUs_t currentTimeUs);
+// Number of altitude samples computed since boot. Consumers polling faster
+// than the sensor (the position estimator) use it to fuse each sample once.
+uint32_t baroGetSampleCount(void);

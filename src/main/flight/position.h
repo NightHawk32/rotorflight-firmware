@@ -39,6 +39,8 @@ bool getAltitudeEstimate(float *altitudeM, float *varioMs, float *stdDevM);
 // Baro downwash model state (for diagnostics)
 float getBaroBias(void);
 float getBaroDisturbance(void);
+// Estimated ground height under the model relative to the arm point (m)
+float getTerrainOffset(void);
 
 // AGL altitude from rangefinder (meters)
 #ifdef USE_RANGEFINDER
@@ -92,6 +94,8 @@ typedef struct positionStatus_s {
     float       posSigmaCm;
     float       flowVelEastCms;
     float       flowVelNorthCms;
+    float       terrainCm;          // terrain offset state, arm frame
+    float       terrainSigmaCm;
 } positionStatus_t;
 
 void positionGetStatus(positionStatus_t *status);
