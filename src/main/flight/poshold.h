@@ -26,5 +26,7 @@
 extern int32_t posHoldAngle[2]; // [AI_ROLL, AI_PITCH]
 
 bool posHoldIsActive(void);
+// Hold target (cm East/North); returns false while not engaged
+bool posHoldGetTarget(float *east, float *north);
 void posHoldUpdate(void);
 void posHoldInitProfile(const pidProfile_t *pidProfile);

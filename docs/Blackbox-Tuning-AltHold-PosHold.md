@@ -109,10 +109,13 @@ Unless stated otherwise:
 | 6 | Velocity right | cm/s, last fused sample |
 | 7 | Status of latest sample | 0 fused, 1 disabled by `position_xy_source`, 2 no sensor / timeout, 3 no valid AGL, 4 quality too low, 5 tilt above 45° |
 
-Test 1 expectation: sliding **forward** gives a positive field 5, and sliding
-**right** gives a positive field 6. If pitching or rolling in place moves fields
-0 and 1 in step with gyro pitch and roll, the module is not compensating for
-rotation.
+Test 1 expectation: the estimator only fuses flow while **armed**, so on a
+disarmed bench fields 3-7 do not update. Use the raw fields: sliding
+**forward** must make field 0 positive, and sliding **right** must make field 1
+negative (Y points left). The configurator's Position & Hold tab shows the same
+check as an arrow. If pitching or rolling in place moves fields 0 and 1 in step
+with gyro pitch and roll, the module is not compensating for rotation. Fields
+5/6 can be checked the same way when armed with props off.
 
 ### `RANGEFINDER`
 

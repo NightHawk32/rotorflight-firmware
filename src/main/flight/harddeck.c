@@ -624,6 +624,12 @@ int getHardDeckState(void)
     return hd.state;
 }
 
+void hardDeckGetStatus(float *predictedAlt, float *targetAlt)
+{
+    *predictedAlt = hd.predictedAlt;
+    *targetAlt = hd.targetAlt;
+}
+
 bool hardDeckIsIntervening(void)
 {
     return hd.state >= HARDDECK_STATE_PULLUP;
