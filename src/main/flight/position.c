@@ -217,6 +217,7 @@ typedef struct {
     float       dbgGpsCm;
     float       dbgRfCm;
     bool        baroGated;      // last baro sample rejected by the gate
+    bool        anchorFresh;    // GPS/rangefinder fused recently (bias observable)
 
 #ifdef USE_GPS
     uint32_t    lastGpsStampMs;
@@ -265,6 +266,9 @@ typedef struct {
     timeMs_t    lastFlowFuseMs;
     timeMs_t    lastFlowSampleMs;
     uint8_t     flowStatus;     // FLOW_STATUS_* of the latest sample
+    bool        gpsFresh;       // GPS fused within XY_MEASUREMENT_TIMEOUT_MS
+    bool        flowFresh;      // flow fused within XY_MEASUREMENT_TIMEOUT_MS
+    bool        clamped;        // dead-reckoning clamp applied this step
     float       flowVelEast;    // last fused flow velocity (cm/s)
     float       flowVelNorth;
 
@@ -502,6 +506,7 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
     // one (baro-only) freeze it, so the baro keeps acting as the altitude.
     const bool anchorFresh = alt.lastZAnchorMs != 0 &&
                              (nowMs - alt.lastZAnchorMs) < Z_ANCHOR_TIMEOUT_MS;
+    alt.anchorFresh = anchorFresh;
 
     if (armed && downwashComp && anchorFresh) {
         baroThrustDirectionUpdate(collective);
@@ -662,6 +667,9 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
 
     if (!armed) {
         posxy.valid = false;
+        posxy.gpsFresh = false;
+        posxy.flowFresh = false;
+        posxy.clamped = false;
         DEBUG(POS_EST_XY, 7, 0);
         return;
     }
@@ -814,6 +822,9 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     }
 
     posxy.valid = gpsFresh || flowFresh;
+    posxy.gpsFresh = gpsFresh;
+    posxy.flowFresh = flowFresh;
+    posxy.clamped = clamped;
 
     posxy.posX = kalmanGetPosition(&posxy.kfEast);
     posxy.posY = kalmanGetPosition(&posxy.kfNorth);
@@ -1036,6 +1047,113 @@ void positionUpdate(void)
     DEBUG(ALTITUDE, 6, gpsSol.llh.altCm);
     DEBUG(ALTITUDE, 7, gpsSol.numSat);
 
+}
+
+void positionGetStatus(positionStatus_t *st)
+{
+    uint16_t flags = 0;
+
+    if (alt.altValid) {
+        flags |= POS_STATUS_ALT_VALID;
+    }
+    if (alt.kfValid) {
+        flags |= POS_STATUS_KF_VALID;
+    }
+    if (alt.anchorFresh) {
+        flags |= POS_STATUS_ANCHOR_FRESH;
+    }
+    if (alt.thrustDir == THRUST_INVERTED) {
+        flags |= POS_STATUS_INVERTED;
+    }
+    if (alt.haveBaroAlt && alt.baroGated) {
+        flags |= POS_STATUS_BARO_GATED;
+    }
+    if (alt.haveBaroAlt) {
+        flags |= POS_STATUS_HAVE_BARO;
+    }
+    if (alt.haveGpsAlt) {
+        flags |= POS_STATUS_HAVE_GPS_ALT;
+    }
+
+    st->altitudeCm = alt.altitude * 100.0f;
+    st->kfAltCm = altKalmanGetAltitude(&alt.kfUp);
+    st->kfVarioCms = altKalmanGetVelocity(&alt.kfUp);
+    st->kfSigmaCm = sqrtf(fmaxf(altKalmanGetAltitudeVariance(&alt.kfUp), 0.0f));
+    st->baroBiasCm = altKalmanGetBias(&alt.kfUp);
+    st->disturbance = alt.disturbance;
+    st->baroMeasCm = alt.dbgBaroCm;
+    st->gpsMeasCm = alt.dbgGpsCm;
+    st->rfMeasCm = alt.dbgRfCm;
+
+#ifdef USE_RANGEFINDER
+    if (sensors(SENSOR_RANGEFINDER)) {
+        flags |= POS_STATUS_RANGEFINDER;
+    }
+    if (isAGLAltitudeValid()) {
+        flags |= POS_STATUS_AGL_VALID;
+    }
+    st->aglAltCm = agl.aglAlt * 100.0f;
+    st->aglVarioCms = agl.aglVario * 100.0f;
+    st->aglReliability = agl.reliability;
+    st->rangefinderRawCm = rangefinderGetLatestRawAltitude();
+#else
+    st->aglAltCm = 0;
+    st->aglVarioCms = 0;
+    st->aglReliability = 0;
+    st->rangefinderRawCm = 0;
+#endif
+
+#ifdef USE_OPTICAL_FLOW
+    if (sensors(SENSOR_OPTICAL_FLOW)) {
+        flags |= POS_STATUS_FLOW;
+        if (opticalFlowIsHealthy()) {
+            flags |= POS_STATUS_FLOW_HEALTHY;
+        }
+    }
+    if (posxy.valid) {
+        flags |= POS_STATUS_XY_VALID;
+    }
+    if (posxy.gpsFresh) {
+        flags |= POS_STATUS_XY_GPS_FRESH;
+    }
+    if (posxy.flowFresh) {
+        flags |= POS_STATUS_XY_FLOW_FRESH;
+    }
+    if (posxy.clamped) {
+        flags |= POS_STATUS_XY_CLAMPED;
+    }
+#ifdef USE_GPS
+    if (posxy.originSet) {
+        flags |= POS_STATUS_XY_GPS_ORIGIN;
+    }
+#endif
+    st->flowX = opticalFlowGetLatestX();
+    st->flowY = opticalFlowGetLatestY();
+    st->flowQuality = opticalFlowGetLatestQuality();
+    st->flowStatus = posxy.flowStatus;
+    st->posEastCm = posxy.posX;
+    st->posNorthCm = posxy.posY;
+    st->velEastCms = posxy.velX;
+    st->velNorthCms = posxy.velY;
+    st->posSigmaCm = sqrtf(fmaxf(0.5f * (kalmanGetPositionVariance(&posxy.kfEast) +
+                                        kalmanGetPositionVariance(&posxy.kfNorth)), 0.0f));
+    st->flowVelEastCms = posxy.flowVelEast;
+    st->flowVelNorthCms = posxy.flowVelNorth;
+#else
+    st->flowX = 0;
+    st->flowY = 0;
+    st->flowQuality = 0;
+    st->flowStatus = 0;
+    st->posEastCm = 0;
+    st->posNorthCm = 0;
+    st->velEastCms = 0;
+    st->velNorthCms = 0;
+    st->posSigmaCm = 0;
+    st->flowVelEastCms = 0;
+    st->flowVelNorthCms = 0;
+#endif
+
+    st->flags = flags;
 }
 
 void INIT_CODE positionInit(void)

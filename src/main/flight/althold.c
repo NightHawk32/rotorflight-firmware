@@ -71,6 +71,10 @@ typedef struct {
     float       lastAlt;        // previous cycle's measurement (frame tracking)
     bool        usingAgl;       // which frame targetAlt is expressed in
     bool        stickActive;    // collective outside the deadband this cycle
+
+    // Last cycle, for altHoldGetStatus()
+    uint8_t     statusFlags;
+    float       statusOutput;
     bool        active;         // was mode active last cycle (for init)
 } altHoldState_t;
 
@@ -194,14 +198,17 @@ void altHoldUpdate(void)
  * Terms are in collective units (0..1000) x10; the velocity command is
  * clamp(alt_p * (target - alt), +-max_climb_rate) and not logged separately.
  */
-#define AH_FLAG_ENGAGED         (1 << 0)
-#define AH_FLAG_USING_AGL       (1 << 1)
-#define AH_FLAG_SOURCE_VALID    (1 << 2)
-#define AH_FLAG_STICK           (1 << 3)    // pilot moving the target
-#define AH_FLAG_YIELDED         (1 << 4)    // mode on, but a rescue is in control
+#define AH_FLAG_ENGAGED         AH_STATUS_ENGAGED
+#define AH_FLAG_USING_AGL       AH_STATUS_USING_AGL
+#define AH_FLAG_SOURCE_VALID    AH_STATUS_SOURCE_VALID
+#define AH_FLAG_STICK           AH_STATUS_STICK     // pilot moving the target
+#define AH_FLAG_YIELDED         AH_STATUS_YIELDED   // mode on, but a rescue is in control
 
 static void altHoldDebug(float output, float Pterm, float Dterm, uint32_t flags)
 {
+    ah.statusFlags = flags;
+    ah.statusOutput = output;
+
     DEBUG(ALTHOLD, 0, lrintf(ah.targetAlt * 100));
     DEBUG(ALTHOLD, 1, lrintf(getCurrentAlt() * 100));
     DEBUG(ALTHOLD, 2, lrintf(getCurrentVario() * 100));
@@ -277,6 +284,14 @@ float altHoldApply(float collective)
     altHoldDebug(output, Pterm, Dterm, flags);
 
     return output;
+}
+
+void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float *output)
+{
+    *flags = ah.statusFlags;
+    *targetAlt = ah.targetAlt;
+    *currentAlt = getCurrentAlt();
+    *output = ah.statusOutput;
 }
 
 void INIT_CODE altHoldInitProfile(const pidProfile_t *pidProfile)
