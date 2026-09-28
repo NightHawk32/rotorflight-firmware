@@ -90,6 +90,11 @@
 #include "flight/mixer.h"
 #include "flight/pid.h"
 #include "flight/position.h"
+#include "flight/althold.h"
+#include "flight/harddeck.h"
+#ifdef USE_OPTICAL_FLOW
+#include "flight/poshold.h"
+#endif
 #include "flight/rpm_filter.h"
 #include "flight/servos.h"
 #include "flight/governor.h"
@@ -132,6 +137,9 @@
 #include "pg/sbus_output.h"
 #include "pg/fbus_master.h"
 #include "pg/bus_servo.h"
+#include "pg/optical_flow.h"
+#include "pg/position.h"
+#include "pg/rangefinder.h"
 
 #include "rx/rx.h"
 #include "rx/rx_bind.h"
@@ -1357,6 +1365,134 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
             break;
         }
 #endif
+
+    case MSP2_GET_POSITION_CONFIG:
+        sbufWriteU8(dst, 1);    // payload version
+        sbufWriteU8(dst, positionConfig()->alt_source);
+        sbufWriteU8(dst, positionConfig()->xy_source);
+        sbufWriteU8(dst, positionConfig()->baro_alt_lpf);
+        sbufWriteU8(dst, positionConfig()->baro_offset_lpf);
+        sbufWriteU8(dst, positionConfig()->gps_alt_lpf);
+        sbufWriteU8(dst, positionConfig()->gps_offset_lpf);
+        sbufWriteU8(dst, positionConfig()->gps_min_sats);
+        sbufWriteU8(dst, positionConfig()->vario_lpf);
+        sbufWriteU16(dst, positionConfig()->est_q_accel_xy);
+        sbufWriteU16(dst, positionConfig()->est_q_accel_z);
+        sbufWriteU16(dst, positionConfig()->est_q_baro_bias);
+        sbufWriteU16(dst, positionConfig()->est_r_baro_alt);
+        sbufWriteU16(dst, positionConfig()->est_r_rangefinder_alt);
+        sbufWriteU16(dst, positionConfig()->est_r_gps_pos);
+        sbufWriteU16(dst, positionConfig()->est_r_gps_vel);
+        sbufWriteU16(dst, positionConfig()->est_r_flow_vel);
+        sbufWriteU16(dst, positionConfig()->est_r_gps_vvel);
+        sbufWriteU8(dst, positionConfig()->baro_downwash_comp);
+#ifdef USE_RANGEFINDER
+        sbufWriteU8(dst, rangefinderConfig()->rangefinder_hardware);
+#else
+        sbufWriteU8(dst, 0);
+#endif
+#ifdef USE_OPTICAL_FLOW
+        sbufWriteU8(dst, opticalFlowConfig()->optical_flow_hardware);
+#else
+        sbufWriteU8(dst, 0);
+#endif
+        break;
+
+    case MSP2_GET_HOLD_PROFILE:
+        sbufWriteU8(dst, 1);    // payload version
+        sbufWriteU16(dst, currentPidProfile->althold.alt_p_gain);
+        sbufWriteU16(dst, currentPidProfile->althold.alt_i_gain);
+        sbufWriteU16(dst, currentPidProfile->althold.alt_d_gain);
+        sbufWriteU16(dst, currentPidProfile->althold.max_climb_rate);
+        sbufWriteU16(dst, currentPidProfile->althold.stick_deadband);
+        sbufWriteU16(dst, currentPidProfile->althold.hover_collective);
+        sbufWriteU16(dst, currentPidProfile->poshold.pos_p_gain);
+        sbufWriteU16(dst, currentPidProfile->poshold.vel_p_gain);
+        sbufWriteU16(dst, currentPidProfile->poshold.vel_i_gain);
+        sbufWriteU16(dst, currentPidProfile->poshold.max_horiz_speed);
+        sbufWriteU16(dst, currentPidProfile->poshold.max_tilt_angle);
+        sbufWriteU16(dst, currentPidProfile->poshold.stick_deadband);
+        sbufWriteU16(dst, currentPidProfile->harddeck.altitude);
+        sbufWriteU16(dst, currentPidProfile->harddeck.arm_margin);
+        sbufWriteU16(dst, currentPidProfile->harddeck.recovery_margin);
+        sbufWriteU16(dst, currentPidProfile->harddeck.release_altitude);
+        sbufWriteU16(dst, currentPidProfile->harddeck.recovery_accel);
+        sbufWriteU16(dst, currentPidProfile->harddeck.reaction_time);
+        sbufWriteU8(dst, currentPidProfile->harddeck.sigma_factor);
+        sbufWriteU8(dst, currentPidProfile->harddeck.use_agl);
+        break;
+
+    case MSP2_GET_POSITION_STATUS: {
+        positionStatus_t st;
+        positionGetStatus(&st);
+
+        sbufWriteU8(dst, 1);    // payload version
+
+        // Estimator
+        sbufWriteU16(dst, st.flags);
+        sbufWriteU32(dst, lrintf(st.altitudeCm));
+        sbufWriteU32(dst, lrintf(st.kfAltCm));
+        sbufWriteU16(dst, constrain(lrintf(st.kfVarioCms), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.kfSigmaCm), 0, UINT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.baroBiasCm), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.disturbance * 100), 0, UINT16_MAX));
+        sbufWriteU32(dst, lrintf(st.baroMeasCm));
+        sbufWriteU32(dst, lrintf(st.gpsMeasCm));
+        sbufWriteU32(dst, lrintf(st.rfMeasCm));
+        sbufWriteU32(dst, lrintf(st.aglAltCm));
+        sbufWriteU16(dst, constrain(lrintf(st.aglVarioCms), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.aglReliability * 1000), 0, 1000));
+        sbufWriteU32(dst, st.rangefinderRawCm);
+        sbufWriteU16(dst, st.flowX);
+        sbufWriteU16(dst, st.flowY);
+        sbufWriteU8(dst, st.flowQuality);
+        sbufWriteU8(dst, st.flowStatus);
+        sbufWriteU32(dst, lrintf(st.posEastCm));
+        sbufWriteU32(dst, lrintf(st.posNorthCm));
+        sbufWriteU16(dst, constrain(lrintf(st.velEastCms), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.velNorthCms), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.posSigmaCm), 0, UINT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.flowVelEastCms), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.flowVelNorthCms), INT16_MIN, INT16_MAX));
+
+        // Altitude hold
+        {
+            uint8_t ahFlags;
+            float ahTarget, ahAlt, ahOutput;
+            altHoldGetStatus(&ahFlags, &ahTarget, &ahAlt, &ahOutput);
+            sbufWriteU8(dst, ahFlags);
+            sbufWriteU32(dst, lrintf(ahTarget * 100));
+            sbufWriteU32(dst, lrintf(ahAlt * 100));
+            sbufWriteU16(dst, constrain(lrintf(ahOutput), INT16_MIN, INT16_MAX));
+        }
+
+        // Position hold
+        {
+            float holdE = 0, holdN = 0;
+            bool active = false;
+            int16_t roll = 0, pitch = 0;
+#ifdef USE_OPTICAL_FLOW
+            active = posHoldGetTarget(&holdE, &holdN);
+            roll = constrain(posHoldAngle[AI_ROLL], INT16_MIN, INT16_MAX);
+            pitch = constrain(posHoldAngle[AI_PITCH], INT16_MIN, INT16_MAX);
+#endif
+            sbufWriteU8(dst, active ? 1 : 0);
+            sbufWriteU32(dst, lrintf(holdE));
+            sbufWriteU32(dst, lrintf(holdN));
+            sbufWriteU16(dst, roll);
+            sbufWriteU16(dst, pitch);
+        }
+
+        // Hard deck
+        {
+            float predicted, target;
+            hardDeckGetStatus(&predicted, &target);
+            sbufWriteU8(dst, getHardDeckState());
+            sbufWriteU32(dst, lrintf(predicted * 100));
+            sbufWriteU32(dst, lrintf(target * 100));
+        }
+        break;
+    }
 
 #ifdef USE_SMARTFUEL
     case MSP2_GET_SMARTFUEL_CONFIG:
@@ -3947,6 +4083,75 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
             for (int i = 0; i < BATTERY_PROFILE_COUNT; i++)
                 batteryConfigMutable()->batteryCapacity[i] = sbufReadU16(src);
         }
+        break;
+
+    case MSP2_SET_POSITION_CONFIG:
+        // Sensor hardware and position_alt_source are read at boot, the
+        // Kalman process noise at init / arming: the configurator reboots
+        // after saving these.
+        if (sbufReadU8(src) != 1) {
+            return MSP_RESULT_ERROR;
+        }
+        positionConfigMutable()->alt_source = sbufReadU8(src);
+        positionConfigMutable()->xy_source = sbufReadU8(src);
+        positionConfigMutable()->baro_alt_lpf = sbufReadU8(src);
+        positionConfigMutable()->baro_offset_lpf = sbufReadU8(src);
+        positionConfigMutable()->gps_alt_lpf = sbufReadU8(src);
+        positionConfigMutable()->gps_offset_lpf = sbufReadU8(src);
+        positionConfigMutable()->gps_min_sats = sbufReadU8(src);
+        positionConfigMutable()->vario_lpf = sbufReadU8(src);
+        positionConfigMutable()->est_q_accel_xy = sbufReadU16(src);
+        positionConfigMutable()->est_q_accel_z = sbufReadU16(src);
+        positionConfigMutable()->est_q_baro_bias = sbufReadU16(src);
+        positionConfigMutable()->est_r_baro_alt = sbufReadU16(src);
+        positionConfigMutable()->est_r_rangefinder_alt = sbufReadU16(src);
+        positionConfigMutable()->est_r_gps_pos = sbufReadU16(src);
+        positionConfigMutable()->est_r_gps_vel = sbufReadU16(src);
+        positionConfigMutable()->est_r_flow_vel = sbufReadU16(src);
+        positionConfigMutable()->est_r_gps_vvel = sbufReadU16(src);
+        positionConfigMutable()->baro_downwash_comp = sbufReadU8(src);
+#ifdef USE_RANGEFINDER
+        rangefinderConfigMutable()->rangefinder_hardware = sbufReadU8(src);
+#else
+        sbufReadU8(src);
+#endif
+#ifdef USE_OPTICAL_FLOW
+        opticalFlowConfigMutable()->optical_flow_hardware = sbufReadU8(src);
+#else
+        sbufReadU8(src);
+#endif
+        break;
+
+    case MSP2_SET_HOLD_PROFILE:
+        if (sbufReadU8(src) != 1) {
+            return MSP_RESULT_ERROR;
+        }
+        currentPidProfile->althold.alt_p_gain = sbufReadU16(src);
+        currentPidProfile->althold.alt_i_gain = sbufReadU16(src);
+        currentPidProfile->althold.alt_d_gain = sbufReadU16(src);
+        currentPidProfile->althold.max_climb_rate = sbufReadU16(src);
+        currentPidProfile->althold.stick_deadband = sbufReadU16(src);
+        currentPidProfile->althold.hover_collective = sbufReadU16(src);
+        currentPidProfile->poshold.pos_p_gain = sbufReadU16(src);
+        currentPidProfile->poshold.vel_p_gain = sbufReadU16(src);
+        currentPidProfile->poshold.vel_i_gain = sbufReadU16(src);
+        currentPidProfile->poshold.max_horiz_speed = sbufReadU16(src);
+        currentPidProfile->poshold.max_tilt_angle = sbufReadU16(src);
+        currentPidProfile->poshold.stick_deadband = sbufReadU16(src);
+        currentPidProfile->harddeck.altitude = sbufReadU16(src);
+        currentPidProfile->harddeck.arm_margin = sbufReadU16(src);
+        currentPidProfile->harddeck.recovery_margin = sbufReadU16(src);
+        currentPidProfile->harddeck.release_altitude = sbufReadU16(src);
+        currentPidProfile->harddeck.recovery_accel = sbufReadU16(src);
+        currentPidProfile->harddeck.reaction_time = sbufReadU16(src);
+        currentPidProfile->harddeck.sigma_factor = sbufReadU8(src);
+        currentPidProfile->harddeck.use_agl = sbufReadU8(src);
+        /* Load new values */
+        altHoldInitProfile(currentPidProfile);
+        hardDeckInitProfile(currentPidProfile);
+#ifdef USE_OPTICAL_FLOW
+        posHoldInitProfile(currentPidProfile);
+#endif
         break;
 
 #ifdef USE_SMARTFUEL

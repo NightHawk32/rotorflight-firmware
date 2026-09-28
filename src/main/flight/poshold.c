@@ -71,6 +71,13 @@ bool posHoldIsActive(void)
     return ph.active;
 }
 
+bool posHoldGetTarget(float *east, float *north)
+{
+    *east = ph.holdX;
+    *north = ph.holdY;
+    return ph.active;
+}
+
 // While disengaged all DEBUG_POSHOLD fields read 0
 static void posHoldDebugClear(void)
 {
