@@ -1,7 +1,7 @@
 # MicroLink Optical Flow / LIDAR — Altitude Hold & Position Hold
 
-This document describes the changes introduced on the `microlink_poshold` branch
-(based on `microlink_driver`, on top of `master` @ `b92aac004`). It covers the new
+This document describes the changes introduced on the `feature/microlink-alt-pos-hold`
+branch (on top of `master` @ `2538b6486`). It covers the new
 sensor driver, the new/changed configuration parameters, and a step-by-step guide
 for wiring up, configuring and testing Altitude Hold and Position Hold with a
 MicroLink MTF-01/MTF-02 module.
@@ -20,14 +20,15 @@ MicroLink MTF-01/MTF-02 module.
 | New sensor abstraction | A generic "optical flow" sensor layer (`sensors/optical_flow.*`, `drivers/optical_flow/*`), analogous to the existing rangefinder layer |
 | Rangefinder | New `MICROLINK` rangefinder hardware option, sourced from the same MicroLink UART stream (shares the driver/port with the optical-flow data) |
 | Altitude Hold | New, fully implemented cascade-PID altitude-hold controller (`flight/althold.*`) that prefers LIDAR AGL altitude when available and falls back to baro/GPS altitude |
-| Position Hold | New feature (`flight/poshold.*`): a cascade-PID horizontal position-hold controller driven by dead-reckoned XY position/velocity derived from optical flow |
+| Position Hold | New feature (`flight/poshold.*`): a cascade-PID horizontal position-hold controller (P+I velocity loop) driven by the fused XY position/velocity estimate |
 | New flight mode | `BOXPOSHOLD` / `POSHOLD_MODE` — new arming-mode box, requires `ALTHOLD_MODE` to also be active and a valid XY position estimate |
-| Position estimator | `flight/position.c` gained an AGL (rangefinder-based) altitude estimator and an optical-flow dead-reckoning XY position/velocity estimator |
+| Position estimator | `flight/position.c` now runs Kalman filters (`flight/kalman.*`): a 3-state vertical filter (altitude, vertical velocity, baro downwash bias) fed by IMU, baro, GPS and rangefinder, and East/North filters fed by IMU, GPS position/velocity and optical-flow velocity. Also an AGL (rangefinder) altitude estimate |
 | New task | `TASK_OPTICAL_FLOW` @ 50 Hz polls/parses the MicroLink UART stream |
-| New debug modes | `DEBUG_OPTICAL_FLOW`, `DEBUG_ALTHOLD`, `DEBUG_POSHOLD` |
+| New debug modes | `DEBUG_OPTICAL_FLOW`, `DEBUG_ALTHOLD`, `DEBUG_POSHOLD`, `DEBUG_HARDDECK` |
 | Hard deck | New training feature (`flight/harddeck.*`, box `HARD DECK`): keeps the helicopter above a set altitude, recovering from any attitude and holding position — see [HardDeck.md](HardDeck.md) |
-| New serial function | `FUNCTION_MICROLINK` (bit 21) — assign a UART to the MicroLink sensor |
-| New PID-profile fields | `pidProfile.althold.*` and `pidProfile.poshold.*` gain/limit structs (see below) |
+| New serial function | `FUNCTION_MICROLINK` (bit 22) — assign a UART to the MicroLink sensor |
+| New PID-profile fields | `pidProfile.althold.*`, `pidProfile.poshold.*` and `pidProfile.harddeck.*` gain/limit structs (see below) |
+| Settings reset | `PG_PID_PROFILE` and `PG_POSITION` versions were bumped, so flashing this firmware **resets all PID profiles and `position_*` settings to defaults**. Save a `diff all` before flashing |
 
 ### Files added
 ```
@@ -44,6 +45,11 @@ src/main/flight/althold.c
 src/main/flight/althold.h
 src/main/flight/poshold.c
 src/main/flight/poshold.h
+src/main/flight/kalman.c
+src/main/flight/kalman.h
+src/main/flight/harddeck.c
+src/main/flight/harddeck.h
+src/test/unit/harddeck_unittest.cc
 ```
 
 ### Files modified (non-exhaustive, see `git diff master...HEAD --stat`)
@@ -56,7 +62,9 @@ src/main/msp/msp_box.c, src/main/pg/pid.c, src/main/pg/pid.h,
 src/main/pg/pg_ids.h, src/main/pg/position.h, src/main/pg/rangefinder.h,
 src/main/scheduler/scheduler.h, src/main/sensors/initialisation.c,
 src/main/sensors/rangefinder.c, src/main/sensors/sensors.h,
-src/main/target/common_pre.h, src/main/build/debug.c, src/main/build/debug.h
+src/main/target/common_pre.h, src/main/build/debug.c, src/main/build/debug.h,
+src/main/io/gps.c, src/main/io/gps.h, src/main/osd/osd_elements.c,
+src/main/telemetry/crsf.c, src/main/pg/position.c, src/main/sensors/rangefinder.h
 ```
 
 ---
@@ -69,8 +77,10 @@ flowchart TD
     DRV --> OF["sensors/optical_flow.c\nTASK_OPTICAL_FLOW @ 50Hz"]
     DRV --> RF["drivers/rangefinder_microlink.c\n(reads distance/strength)"]
     RF --> RFS["sensors/rangefinder.c\nTASK_RANGEFINDER @ 50Hz"]
-    OF --> POS["flight/position.c\npositionUpdate()"]
+    OF --> POS["flight/position.c\npositionUpdate()\nKalman estimator @ 100Hz"]
     RFS --> POS
+    GPS["GPS\npos / vel / alt / Doppler velD"] --> POS
+    BARO["Baro"] --> POS
     POS -->|AGL alt/vario| AH["flight/althold.c\naltHoldApply() -> collective"]
     POS -->|XY pos/vel| PH["flight/poshold.c\nposHoldUpdate() -> posHoldAngle[]"]
     AH --> PID["flight/pid.c\npidApplyCollective()"]
@@ -82,18 +92,29 @@ flowchart TD
   driver and the optical-flow driver read from the **same** serial port/parser —
   you only need to wire up **one** UART and set **both** hardware options to
   `MICROLINK`.
-* Optical flow velocities are converted to true ground-relative velocity by the
-  driver (`flow_vel × distance_mm / 1000`), so a valid LIDAR distance is required
-  for optical flow to produce a usable value.
+* The driver passes the module's **raw** angular flow ("cm/s at 1 m") through
+  unscaled. `position.c` converts it to ground velocity as
+  `flow × AGL height / cos²(tilt)`, using the filtered, tilt-compensated AGL
+  altitude, then rotates it by heading into East/North. A valid LIDAR reading
+  is therefore required for optical flow to be fused. Flow is not fused at
+  more than 45° of tilt or with a quality of 50/255 or less.
+* The horizontal estimate fuses **GPS and optical flow** (`position_xy_source`,
+  default `AUTO`). With GPS, the position is anchored to the first fix after
+  arming. With flow only, it is dead-reckoned and clamped to 10 m from the
+  arm point.
 * Altitude Hold (`althold.c`) prefers the LIDAR AGL altitude
   (`isAGLAltitudeValid()`) and falls back to the existing baro/GPS blended
   altitude (`getAltitude()`) when the rangefinder is out of range or unreliable.
 * Position Hold (`poshold.c`) requires **both**: a valid XY position estimate
   (`isPositionXYValid()`) **and** `ALTHOLD_MODE` to be active — Position Hold
   cannot be engaged on its own.
-* Priority in the collective channel: **Rescue > Altitude Hold > pilot stick**.
-  Position Hold only ever adds a roll/pitch angle trim on top of the existing
-  self-level angle (same mechanism as `gpsRescueAngle[]`).
+* Priority in the collective channel: **Hard Deck > Rescue > Altitude Hold >
+  pilot stick**. Altitude Hold passes the collective through while rescue
+  (including its exit blend), GPS rescue or failsafe is in control, and
+  re-latches its target afterwards.
+* While Position Hold is engaged, its angle command **replaces** the
+  stick-derived self-level angle (the sticks then move the hold target). When
+  it is not engaged, normal stick control is untouched.
 
 ---
 
@@ -105,13 +126,32 @@ flowchart TD
 | --- | --- | --- |
 | `rangefinder_hardware` | `NONE`, `HCSR04`, `TFMINI`, `TF02`, **`MICROLINK`** (new) | Select `MICROLINK` to source LIDAR altitude from the MicroLink UART |
 | `optical_flow_hardware` | `NONE`, **`MICROLINK`** (new parameter/table) | Default is `MICROLINK`. New `PG_OPTICAL_FLOW_CONFIG` parameter group |
-| `position_alt_source` | `DEFAULT`, `BARO_ONLY`, `GPS_ONLY`, **`LIDAR_ONLY`** (new) | When `LIDAR_ONLY` is selected, the general altitude/vario estimate (`getAltitude()`/`getEstimatedAltitudeCm()`, used by OSD/blackbox/telemetry) is sourced from the rangefinder AGL estimate instead of the baro/GPS blend |
+| `position_alt_source` | `DEFAULT`, `BARO_ONLY`, `GPS_ONLY`, **`LIDAR_ONLY`** (new) | When `LIDAR_ONLY` is selected, the general altitude/vario estimate (`getAltitude()`/`getEstimatedAltitudeCm()`, used by OSD/blackbox/telemetry) is sourced from the rangefinder AGL estimate, and the rangefinder is fused into the Kalman filter with 4× lower noise |
+| `position_xy_source` (new) | `AUTO`, `GPS_ONLY`, `FLOW_ONLY` | Which sensors feed the horizontal estimate. Default `AUTO` fuses both |
+
+### 3.1a Estimator tuning (master values, new)
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `position_est_q_accel_xy` | 50000 | Horizontal accel process noise, (cm/s²)² |
+| `position_est_q_accel_z` | 20000 | Vertical accel process noise, (cm/s²)² |
+| `position_est_r_baro_alt` | 1500 | Baro altitude noise, cm² |
+| `position_est_r_lidar_alt` | 100 | Rangefinder altitude noise, cm² |
+| `position_est_r_gps_pos` | 500 | GPS position noise at HDOP 1, cm² |
+| `position_est_r_gps_vel` | 100 | GPS velocity noise at HDOP 1, (cm/s)² |
+| `position_est_r_flow_vel` | 400 | Optical-flow velocity noise at best quality, (cm/s)² |
+| `position_est_r_gps_vvel` | 400 | GPS Doppler vertical velocity noise at DOP 1, (cm/s)² (u-blox only) |
+| `position_est_q_baro_bias` | 400 | Baro downwash bias random walk, cm²/s |
+| `position_baro_downwash_comp` | 30 | Baro downwash handling strength (×10), 0 = off. See [HardDeck.md](HardDeck.md#2-altitude-estimation-baro-in-the-downwash-gps-and-imu) |
+
+`position_vario_lpf` still exists but no longer has any effect: the vario now
+comes from the Kalman filter.
 
 ### 3.2 New serial port function
 
 | Function | Bit | Notes |
 | --- | --- | --- |
-| `FUNCTION_MICROLINK` | `1 << 21` (2097152) | Assign to the UART physically connected to the MicroLink module. Fixed at 115200 baud 8N1, opened internally by the optical-flow driver — you do not choose the baud rate via the `serial` command for this function |
+| `FUNCTION_MICROLINK` | `1 << 22` (4194304) | Assign to the UART physically connected to the MicroLink module. Fixed at 115200 baud 8N1, opened internally by the optical-flow driver — you do not choose the baud rate via the `serial` command for this function |
 
 ### 3.3 New PID-profile CLI parameters
 
@@ -122,7 +162,7 @@ saved/restored via `dump`/`diff`, and are visible in Configurator's CLI tab.
 
 | CLI name | Field | Default | Range | Meaning |
 | --- | --- | --- | --- | --- |
-| `althold_alt_p_gain` | `althold.alt_p_gain` | 20 | 0-1000 | Altitude error → velocity setpoint, P gain ×10 (2.0) |
+| `althold_alt_p_gain` | `althold.alt_p_gain` | 20 | 0-1000 | P gain ×10 (2.0), used for both loops: altitude error (m) → velocity setpoint (m/s), and velocity error (m/s) → collective (out of 1000) |
 | `althold_alt_i_gain` | `althold.alt_i_gain` | 5 | 0-1000 | Velocity-loop integral gain |
 | `althold_alt_d_gain` | `althold.alt_d_gain` | 15 | 0-1000 | Damping gain applied to vario (climb rate) |
 | `althold_max_climb_rate` | `althold.max_climb_rate` | 200 | 10-1000 | Max commanded climb/descent rate, cm/s |
@@ -130,6 +170,7 @@ saved/restored via `dump`/`diff`, and are visible in Configurator's CLI tab.
 | `althold_hover_collective` | `althold.hover_collective` | 350 | 0-1000 | Feed-forward hover collective, out of 1000 |
 | `poshold_pos_p_gain` | `poshold.pos_p_gain` | 50 | 0-1000 | Position error (cm) → velocity setpoint, ×100 scale (0.5 (cm/s)/cm) |
 | `poshold_vel_p_gain` | `poshold.vel_p_gain` | 30 | 0-1000 | Velocity error (cm/s) → tilt angle, ×100 scale (0.3°/(cm/s)) |
+| `poshold_vel_i_gain` | `poshold.vel_i_gain` | 10 | 0-1000 | Velocity-loop integral (wind trim), ×100 scale (0.1°/(cm/s)/s). Kept in the earth frame, so it survives yaw changes |
 | `poshold_max_horiz_speed` | `poshold.max_horiz_speed` | 200 | 10-1000 | Max commanded horizontal speed, cm/s |
 | `poshold_max_tilt_angle` | `poshold.max_tilt_angle` | 150 | 10-450 | Max tilt angle, degrees ×10 (15.0°) |
 | `poshold_stick_deadband` | `poshold.stick_deadband` | 100 | 0-500 | Roll/pitch stick deadband, out of 1000 (10%) |
@@ -153,9 +194,10 @@ Set with `set debug_mode = <name>` and inspect with blackbox or `debug` MSP:
 
 | Debug mode | Fields (0-7) |
 | --- | --- |
-| `OPTICAL_FLOW` | flowX, flowY, quality |
-| `ALTHOLD` | AGL alt (cm), AGL vario (cm/s), reliability (‰), raw rangefinder alt (cm) *(set in `position.c`)*; altError, velCmd, output, targetAlt *(set in `althold.c`)* |
-| `POSHOLD` | posX, posY, velX, velY, valid, flow quality *(set in `position.c`)*; posErrX, posErrY, angleRoll, anglePitch, holdX, holdY *(set in `poshold.c`)* |
+| `OPTICAL_FLOW` | raw flowX, flowY, quality *(set in `sensors/optical_flow.c`)*; fused velocity East, North (cm/s), height (cm), flow scale ×100 *(set in `position.c`)* |
+| `ALTHOLD` | AGL alt (cm), AGL vario (cm/s), reliability (‰), tilt-compensated rangefinder alt (cm) *(set in `position.c`)*; altError, velCmd, output, targetAlt *(set in `althold.c`)* |
+| `POSHOLD` | posX (East), posY (North) (cm), velX, velY (cm/s), valid, flow quality *(fields 0-5, set in `position.c`)*; roll and pitch angle command in centidegrees *(fields 6-7, set in `poshold.c`)* |
+| `HARDDECK` | See [HardDeck.md](HardDeck.md#34-mode-and-debug) |
 
 ---
 
@@ -184,10 +226,10 @@ make TARGET=STM32F405 DEBUG=GDB -j4
 
 1. Identify a free UART (e.g. `UART3`) and assign the MicroLink function to it.
    Use the numeric identifier for your UART (see `docs/Serial.md`) and the
-   `FUNCTION_MICROLINK` bitmask (2097152). Baud-rate arguments are ignored for
+   `FUNCTION_MICROLINK` bitmask (4194304). Baud-rate arguments are ignored for
    this function but must still be supplied:
    ```
-   serial 2 2097152 115200 57600 0 115200
+   serial 2 4194304 115200 57600 0 115200
    save
    ```
    (Adjust `2` to the identifier of the UART you actually wired up.)
@@ -244,7 +286,7 @@ Test incrementally and always start props-off.
    - `DEBUG_OPTICAL_FLOW` fields 0/1 (flowX/flowY) change when you tilt/pan the
      module by hand, and field 2 (quality) is non-zero over textured surfaces.
 4. If nothing shows up: double-check UART wiring/TX-RX swap, that
-   `serial <n> 2097152 ...` and both `_hardware` settings were saved (`dump`),
+   `serial <n> 4194304 ...` and both `_hardware` settings were saved (`dump`),
    and that no other function is already assigned to that UART.
 
 ### 5.2 Bench test — altitude hold logic (props off, bench/gimbal)
@@ -300,10 +342,10 @@ Test incrementally and always start props-off.
    moves in the direction you actually commanded — this exercises the
    heading-relative stick rotation described in
    [Known limitations](#known-limitations).
-5. There is still no absolute-reference drift correction (no GPS/mag fusion)
-   in the dead-reckoning position estimate — expect inaccuracy to grow over
-   longer hold durations; this is a stability/drift characteristic to
-   validate carefully, not a "GPS-grade" hold.
+5. Without GPS (`FLOW_ONLY`, or no fix), the position is dead-reckoned from
+   flow velocity and drifts over time. Expect the hold point to wander on
+   long holds. With a GPS fix in `AUTO`, GPS anchors the position and the
+   drift is bounded by GPS accuracy.
 
 ---
 
@@ -357,15 +399,15 @@ since been fixed in the source:
   physical module at detect time. A configured-but-disconnected sensor will
   be reported as "detected" and will only be caught later, at runtime, via
   `opticalFlowIsHealthy()` (500 ms response timeout).
-- **No absolute-reference drift correction.** The dead-reckoning XY position
-  estimate integrates optical-flow velocity with no GPS/mag fusion or other
-  external reference, so position error will still accumulate over time —
-  this is an inherent property of dead reckoning, not something fixable by
-  wiring/config changes alone.
-- **Position estimate silently resets/clamps.** Dead-reckoned position is
-  clamped to a 1000 cm radius from the arm-time origin
-  (`POSXY_MAX_DEADRECKONING_CM`) and marked invalid after 500 ms without a
-  qualifying flow sample — expect hold behaviour to degrade over long
+- **Flow-only position drifts.** Without GPS, the XY position integrates
+  optical-flow velocity, so its error accumulates over time. GPS fusion
+  (`position_xy_source = AUTO` or `GPS_ONLY`) removes this when a fix is
+  available. There is no magnetometer fusion in the estimator, so heading
+  drift rotates the flow velocity.
+- **Position estimate silently resets/clamps.** While no GPS fix is being
+  fused, the position is clamped to a 1000 cm radius from the arm-time origin
+  (`POSXY_MAX_DEADRECKONING_CM`). The estimate is marked invalid after 500 ms
+  without a fused GPS or flow sample — expect hold behaviour to degrade over long
   flights or after periods of poor flow quality. This is a deliberate safety
   clamp rather than a bug, but it's worth knowing about before trusting long
   position holds.
