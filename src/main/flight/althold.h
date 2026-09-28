@@ -21,6 +21,16 @@
 
 #include "flight/pid.h"
 
+// AH_STATUS_* flags, as in DEBUG_ALTHOLD[7]
+#define AH_STATUS_ENGAGED       (1 << 0)
+#define AH_STATUS_USING_AGL     (1 << 1)
+#define AH_STATUS_SOURCE_VALID  (1 << 2)
+#define AH_STATUS_STICK         (1 << 3)
+#define AH_STATUS_YIELDED       (1 << 4)
+
+// Last controller cycle, for MSP (altitudes in m, output 0..1000)
+void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float *output);
+
 void altHoldUpdate(void);
 float altHoldApply(float collective);
 void altHoldInitProfile(const pidProfile_t *pidProfile);

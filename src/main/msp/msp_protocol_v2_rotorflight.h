@@ -18,6 +18,13 @@
 #define MSP2_GET_SMARTFUEL_CONFIG           0x4000
 #define MSP2_SET_SMARTFUEL_CONFIG           0x4001
 
+// MicroLink / altitude hold / position hold / hard deck (fork range 0x5A00)
+#define MSP2_GET_POSITION_CONFIG            0x5A00
+#define MSP2_SET_POSITION_CONFIG            0x5A01
+#define MSP2_GET_HOLD_PROFILE               0x5A02
+#define MSP2_SET_HOLD_PROFILE               0x5A03
+#define MSP2_GET_POSITION_STATUS            0x5A04
+
 #define MSP2_GET_FBUS_SENSORS               0x5F07
 #define MSP2_CLEAR_FBUS_SENSORS             0x5F08
 #define MSP2_GET_FBUS_MASTER_CONFIG         0x5F09

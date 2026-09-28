@@ -34,6 +34,9 @@ typedef enum {
 
 int getHardDeckState(void);
 
+// Predicted minimum altitude and recovery/hold target (m, arm-point frame)
+void hardDeckGetStatus(float *predictedAlt, float *targetAlt);
+
 // True while the hard deck is overriding the pilot (recovery, hold or exit blend)
 bool hardDeckIsIntervening(void);
 
