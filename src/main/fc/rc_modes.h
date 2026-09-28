@@ -41,10 +41,8 @@ typedef enum {
     BOXRESCUE,
     BOXGPSRESCUE,
     BOXFAILSAFE,
-    BOXPOSHOLD,
-    BOXHARDDECK,
 
-    BOXID_FLIGHTMODE_LAST = BOXHARDDECK,
+    BOXID_FLIGHTMODE_LAST = BOXFAILSAFE,
 
     // RC modes
     BOXPREARM,
@@ -71,6 +69,15 @@ typedef enum {
     BOXUSER2,
     BOXUSER3,
     BOXUSER4,
+
+    // Flight modes added after the original list.  boxId_e values are stored
+    // in the saved aux configuration (modeActivationCondition_t.modeId), so
+    // new boxes must be appended here rather than inserted above, or every
+    // existing aux switch after the insertion point would change meaning.
+    // getBoxIdState() reports them via their switch state, which is exactly
+    // what drives their flight-mode flags in processRxModes().
+    BOXPOSHOLD,
+    BOXHARDDECK,
 
     CHECKBOX_ITEM_COUNT,
 
