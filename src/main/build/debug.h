@@ -74,7 +74,6 @@ typedef enum {
     DEBUG_RANGEFINDER,
     DEBUG_RANGEFINDER_QUALITY,
     DEBUG_LIDAR_TF,
-    DEBUG_OPTICAL_FLOW,
     DEBUG_ADC_INTERNAL,
     DEBUG_GOVERNOR,
     DEBUG_SDIO,
@@ -127,9 +126,14 @@ typedef enum {
     DEBUG_GOV_MOTOR,
     DEBUG_POLAR_RATE,
     DEBUG_GYRO_CALIBRATION,
+    // New modes are appended: debug_mode is saved (and written to blackbox
+    // headers) as this index, so inserting would renumber existing modes
     DEBUG_ALTHOLD,
     DEBUG_POSHOLD,
     DEBUG_HARDDECK,
+    DEBUG_OPTICAL_FLOW,
+    DEBUG_POS_EST_Z,
+    DEBUG_POS_EST_XY,
     DEBUG_COUNT
 } debugType_e;
 
