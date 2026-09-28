@@ -182,7 +182,12 @@ The `poshold_*` entries are compiled in whenever `USE_OPTICAL_FLOW` is defined
 
 | Box | Mode flag | Notes |
 | --- | --- | --- |
-| `BOXPOSHOLD` (id 58) | `POSHOLD_MODE` (bit 7) | New; must be mapped to an aux switch with `aux`. Requires `BOXALTHOLD` to also be active in the air, plus a healthy optical-flow position estimate |
+| `ALTHOLD` (permanent id 3) | `ALTHOLD_MODE` (bit 4) | Existing box, now functional |
+| `POSHOLD` (permanent id 58) | `POSHOLD_MODE` (bit 7) | New; must be mapped to an aux switch with `aux`. Requires `ALTHOLD` to also be active in the air, plus a valid XY position estimate |
+| `HARD DECK` (permanent id 59) | `HARDDECK_MODE` (bit 8) | New, see [HardDeck.md](HardDeck.md) |
+
+The new boxes are appended at the end of the internal box list, so existing
+saved `aux` switches keep their meaning after flashing.
 
 `BOXALTHOLD`/`ALTHOLD_MODE` already existed on `master` as a mode flag, but had
 **no functional controller** wired to it — this branch is what makes Altitude
@@ -190,14 +195,11 @@ Hold actually work.
 
 ### 3.5 New debug modes
 
-Set with `set debug_mode = <name>` and inspect with blackbox or `debug` MSP:
-
-| Debug mode | Fields (0-7) |
-| --- | --- |
-| `OPTICAL_FLOW` | raw flowX, flowY, quality *(set in `sensors/optical_flow.c`)*; fused velocity East, North (cm/s), height (cm), flow scale ×100 *(set in `position.c`)* |
-| `ALTHOLD` | AGL alt (cm), AGL vario (cm/s), reliability (‰), tilt-compensated rangefinder alt (cm) *(set in `position.c`)*; altError, velCmd, output, targetAlt *(set in `althold.c`)* |
-| `POSHOLD` | posX (East), posY (North) (cm), velX, velY (cm/s), valid, flow quality *(fields 0-5, set in `position.c`)*; roll and pitch angle command in centidegrees *(fields 6-7, set in `poshold.c`)* |
-| `HARDDECK` | See [HardDeck.md](HardDeck.md#34-mode-and-debug) |
+`OPTICAL_FLOW`, `ALTHOLD`, `POSHOLD`, `HARDDECK`, `POS_EST_Z` and `POS_EST_XY`
+(set with `set debug_mode = <name>`). The rangefinder AGL chain is in fields 4-7
+of the existing `RANGEFINDER` mode. Each mode holds everything needed for one
+tuning job; the field layouts and a blackbox test plan are in
+[Blackbox-Tuning-AltHold-PosHold.md](Blackbox-Tuning-AltHold-PosHold.md).
 
 ---
 
@@ -253,12 +255,14 @@ make TARGET=STM32F405 DEBUG=GDB -j4
 
 4. Map switches to the flight modes:
    ```
-   aux 0 0 <althold_channel> 1700 2100      ; BOXALTHOLD on a 2-pos/3-pos switch
-   aux 1 58 <poshold_channel> 1700 2100     ; BOXPOSHOLD on a switch
+   aux 0 3 <aux_index> 1700 2100      ; ALTHOLD
+   aux 1 58 <aux_index> 1700 2100     ; POSHOLD
+   aux 2 59 <aux_index> 1700 2100     ; HARD DECK
    ```
-   (`aux <slot> <boxId> <channel> <rangeStart> <rangeEnd>` — box id 4 is
-   `BOXALTHOLD`, box id 58 is `BOXPOSHOLD`; check `aux` / your Configurator's
-   Modes tab for the exact box ids reported by your build.)
+   (`aux <slot> <permanentId> <aux_index> <rangeStart> <rangeEnd>`. The
+   permanent ids are ALTHOLD = 3, POSHOLD = 58, HARD DECK = 59; **0 is ARM**.
+   `<aux_index>` is 0 for AUX1, 1 for AUX2, and so on. Pick slots that are
+   not already used (`aux` lists them), or use the Configurator Modes tab.)
 
 5. Save:
    ```
@@ -296,11 +300,12 @@ Test incrementally and always start props-off.
    a table with a lipo connected and motors disarmed to confirm distance
    tracks.
 3. Arm on a safe bench stand with props off (if your setup allows arming
-   without props), enable `BOXALTHOLD`, and verify via debug fields that
-   `targetAlt` latches on mode entry and `altError`/`output` respond
-   sensibly to simulated altitude change (moving the sensor/board by hand).
-4. Disable the mode and confirm the debug fields reset (`ah.active` behaviour)
-   and no side effects remain on the collective.
+   without props), enable `ALTHOLD`, and verify via debug fields that the
+   target (field 0) latches on mode entry, field 7 has the engaged flag (value 1) set, and
+   the output (field 6) responds sensibly to simulated altitude change
+   (moving the sensor/board by hand).
+4. Disable the mode and confirm field 7 drops to not engaged and field 6
+   follows the collective stick again.
 
 ### 5.3 First flight test — Altitude Hold only
 
@@ -327,7 +332,9 @@ Test incrementally and always start props-off.
 2. Hover in Altitude Hold, then engage `BOXPOSHOLD`:
    - It only activates if `ALTHOLD_MODE` is already active and the XY position
      estimate is valid; otherwise `posHoldAngle` stays at zero and it has no
-     effect (check `DEBUG_POSHOLD` field 4 = 1 for valid).
+     effect (with `debug_mode = POSHOLD` all fields read 0 while it is not
+     engaged; `POS_EST_XY` field 7 flag 1 (valid) shows whether the XY estimate is
+     valid).
    - Verify the aircraft resists drift and returns toward the hold point.
    - Gently move the aircraft's own commanded position via roll/pitch stick
      (outside the stick deadband) and confirm the hold target shifts and
