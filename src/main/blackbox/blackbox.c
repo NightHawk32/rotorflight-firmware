@@ -74,6 +74,9 @@
 #include "io/serial.h"
 
 #include "pg/blackbox.h"
+#include "pg/optical_flow.h"
+#include "pg/position.h"
+#include "pg/rangefinder.h"
 #include "pg/motor.h"
 #include "pg/rx.h"
 
@@ -1774,6 +1777,72 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("maxthrottle", "%d",                     motorConfig()->maxthrottle);
         BLACKBOX_PRINT_HEADER_LINE("collectiveRange", "%d,%d",              mixerInputs(MIXER_IN_STABILIZED_COLLECTIVE)->min,
                                                                             mixerInputs(MIXER_IN_STABILIZED_COLLECTIVE)->max);
+
+        // Altitude/position hold, hard deck and state estimator settings, so
+        // logs can be analysed for tuning without a separate CLI diff
+        BLACKBOX_PRINT_HEADER_LINE("rescue_mode", "%d,%d",                  currentPidProfile->rescue.mode,
+                                                                            currentPidProfile->rescue.flip_mode);
+        BLACKBOX_PRINT_HEADER_LINE("rescue_gain", "%d,%d",                  currentPidProfile->rescue.level_gain,
+                                                                            currentPidProfile->rescue.flip_gain);
+        BLACKBOX_PRINT_HEADER_LINE("rescue_time", "%d,%d,%d,%d",            currentPidProfile->rescue.pull_up_time,
+                                                                            currentPidProfile->rescue.climb_time,
+                                                                            currentPidProfile->rescue.flip_time,
+                                                                            currentPidProfile->rescue.exit_time);
+        BLACKBOX_PRINT_HEADER_LINE("rescue_collective", "%d,%d,%d,%d",      currentPidProfile->rescue.pull_up_collective,
+                                                                            currentPidProfile->rescue.climb_collective,
+                                                                            currentPidProfile->rescue.hover_collective,
+                                                                            currentPidProfile->rescue.max_collective);
+        BLACKBOX_PRINT_HEADER_LINE("rescue_alt", "%d,%d,%d,%d",             currentPidProfile->rescue.hover_altitude,
+                                                                            currentPidProfile->rescue.alt_p_gain,
+                                                                            currentPidProfile->rescue.alt_i_gain,
+                                                                            currentPidProfile->rescue.alt_d_gain);
+        BLACKBOX_PRINT_HEADER_LINE("rescue_setpoint", "%d,%d",              currentPidProfile->rescue.max_setpoint_rate,
+                                                                            currentPidProfile->rescue.max_setpoint_accel);
+        BLACKBOX_PRINT_HEADER_LINE("althold_gain", "%d,%d,%d",              currentPidProfile->althold.alt_p_gain,
+                                                                            currentPidProfile->althold.alt_i_gain,
+                                                                            currentPidProfile->althold.alt_d_gain);
+        BLACKBOX_PRINT_HEADER_LINE("althold_limits", "%d,%d,%d",            currentPidProfile->althold.max_climb_rate,
+                                                                            currentPidProfile->althold.stick_deadband,
+                                                                            currentPidProfile->althold.hover_collective);
+        BLACKBOX_PRINT_HEADER_LINE("poshold_gain", "%d,%d,%d",              currentPidProfile->poshold.pos_p_gain,
+                                                                            currentPidProfile->poshold.vel_p_gain,
+                                                                            currentPidProfile->poshold.vel_i_gain);
+        BLACKBOX_PRINT_HEADER_LINE("poshold_limits", "%d,%d,%d",            currentPidProfile->poshold.max_horiz_speed,
+                                                                            currentPidProfile->poshold.max_tilt_angle,
+                                                                            currentPidProfile->poshold.stick_deadband);
+        BLACKBOX_PRINT_HEADER_LINE("harddeck_altitude", "%d,%d,%d,%d",      currentPidProfile->harddeck.altitude,
+                                                                            currentPidProfile->harddeck.arm_margin,
+                                                                            currentPidProfile->harddeck.recovery_margin,
+                                                                            currentPidProfile->harddeck.release_altitude);
+        BLACKBOX_PRINT_HEADER_LINE("harddeck_predict", "%d,%d,%d,%d",       currentPidProfile->harddeck.recovery_accel,
+                                                                            currentPidProfile->harddeck.reaction_time,
+                                                                            currentPidProfile->harddeck.sigma_factor,
+                                                                            currentPidProfile->harddeck.use_agl);
+        BLACKBOX_PRINT_HEADER_LINE("position_source", "%d,%d",              positionConfig()->alt_source,
+                                                                            positionConfig()->xy_source);
+        BLACKBOX_PRINT_HEADER_LINE("position_lpf", "%d,%d,%d,%d,%d",        positionConfig()->baro_alt_lpf,
+                                                                            positionConfig()->baro_offset_lpf,
+                                                                            positionConfig()->gps_alt_lpf,
+                                                                            positionConfig()->gps_offset_lpf,
+                                                                            positionConfig()->vario_lpf);
+        BLACKBOX_PRINT_HEADER_LINE("position_gps_min_sats", "%d",           positionConfig()->gps_min_sats);
+        BLACKBOX_PRINT_HEADER_LINE("position_est_q", "%d,%d,%d",            positionConfig()->est_q_accel_xy,
+                                                                            positionConfig()->est_q_accel_z,
+                                                                            positionConfig()->est_q_baro_bias);
+        BLACKBOX_PRINT_HEADER_LINE("position_est_r", "%d,%d,%d,%d,%d,%d",   positionConfig()->est_r_baro_alt,
+                                                                            positionConfig()->est_r_rangefinder_alt,
+                                                                            positionConfig()->est_r_gps_pos,
+                                                                            positionConfig()->est_r_gps_vel,
+                                                                            positionConfig()->est_r_flow_vel,
+                                                                            positionConfig()->est_r_gps_vvel);
+        BLACKBOX_PRINT_HEADER_LINE("position_baro_downwash_comp", "%d",     positionConfig()->baro_downwash_comp);
+#ifdef USE_RANGEFINDER
+        BLACKBOX_PRINT_HEADER_LINE("rangefinder_hardware", "%d",            rangefinderConfig()->rangefinder_hardware);
+#endif
+#ifdef USE_OPTICAL_FLOW
+        BLACKBOX_PRINT_HEADER_LINE("optical_flow_hardware", "%d",           opticalFlowConfig()->optical_flow_hardware);
+#endif
+        BLACKBOX_PRINT_HEADER_LINE("pid_rate_hz", "%d",                     (int)lrintf(pidGetPidFrequency()));
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_DEBUG_MODE, "%d",             debugMode);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_DEBUG_AXIS, "%d",             debugAxis);
         BLACKBOX_PRINT_HEADER_LINE("fields_mask", "%d",                     blackboxConfig()->fields);
