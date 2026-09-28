@@ -870,10 +870,11 @@ static void pidApplyCollective(void)
 {
     float collective = getSetpoint(FD_COLL);
 
-    // Apply rescue (override takes highest priority)
+    // Apply rescue (override)
     collective = rescueApply(FD_COLL, collective);
 
-    // Apply altitude hold (lower priority than rescue)
+    // Apply altitude hold. Passes the rescue collective through while any
+    // rescue is in control, so rescue keeps priority over altitude hold.
     collective = altHoldApply(collective);
 
 #ifdef USE_ACC

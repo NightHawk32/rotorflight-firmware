@@ -18,9 +18,10 @@
 /*
  * Position/altitude state estimation.
  *
- * Altitude (Z) and horizontal position (XY) are each estimated by a 2-state
- * [position, velocity] Kalman filter per axis (kalman.c, ported from
- * Betaflight's position_filter.c).  IMU acceleration drives the prediction
+ * Altitude (Z) is estimated by a 3-state [altitude, velocity, baro bias]
+ * Kalman filter, horizontal position (XY) by a 2-state [position, velocity]
+ * filter per axis (kalman.c, the 2-state filter ported from Betaflight's
+ * position_filter.c).  IMU acceleration drives the prediction
  * step; sensors correct it with measurement noise (R) scaled by their
  * quality metrics:
  *
@@ -100,10 +101,16 @@
 #include "flight/kalman.h"
 #include "flight/position.h"
 
-// Rangefinder reliability decay constant (time constant ~400ms at 50Hz)
+// Rangefinder reliability ramp, applied once per rangefinder sample (not per
+// PID loop): at 50Hz valid needs ~7 good samples (~140ms) from zero, and a
+// fully trusted reading is dropped after ~7 bad ones.
 #define AGL_RELIABILITY_INCREMENT   0.05f
 #define AGL_RELIABILITY_DECREMENT   0.10f
 #define AGL_RELIABILITY_THRESHOLD   0.33f
+// AGL vario differentiator cutoff, and the longest gap between two valid
+// samples that is still differentiated (longer gaps restart the vario)
+#define AGL_VARIO_CUTOFF_HZ         1.0f
+#define AGL_MAX_SAMPLE_GAP_US       500000
 // Optical flow quality hard floor (0-255): below this a sample is never fused
 #define FLOW_QUALITY_MIN            50
 // Beyond ~45 deg of tilt the flat-ground flow geometry (and the 1/cos^2 scale
@@ -188,6 +195,7 @@ typedef struct {
 #ifdef USE_RANGEFINDER
     float       rfAltOffset;    // aligns rangefinder AGL to the KF frame (cm)
     bool        rfOffsetSet;
+    uint32_t    lastRfSample;   // last AGL sample fused into the KF
 #endif
 
 } altState_t;
@@ -203,6 +211,10 @@ typedef struct {
     float       aglVario;       // AGL vertical velocity in m/s
     float       reliability;    // 0.0 = invalid, 1.0 = perfect
     difFilter_t varioFilter;
+    uint32_t    lastSampleCount;// rangefinder sample counter last processed
+    uint32_t    validSamples;   // increments on every valid AGL sample
+    timeUs_t    lastValidUs;    // time of the last valid sample
+    bool        lastValid;      // previous sample was valid (vario continuity)
 } aglState_t;
 
 static FAST_DATA aglState_t agl;
@@ -516,9 +528,13 @@ static void estimatorUpdateZ(timeMs_t nowMs, float dt, float accelUp, bool armed
 #endif
 
 #ifdef USE_RANGEFINDER
+    // Fused once per new rangefinder sample: the sensor runs slower than the
+    // 100Hz estimator, and re-fusing a held sample would overstate confidence
     if (alt.source != ALT_SOURCE_BARO_ONLY && alt.source != ALT_SOURCE_GPS_ONLY &&
-        isAGLAltitudeValid())
+        isAGLAltitudeValid() && agl.validSamples != alt.lastRfSample)
     {
+        alt.lastRfSample = agl.validSamples;
+
         const float rfAltCm = agl.aglAlt * 100.0f;
 
         // First valid sample per flight: align the terrain-relative rangefinder
@@ -608,8 +624,9 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
         kalmanUpdatePosition(&posxy.kfEast, east, rPos);
         kalmanUpdatePosition(&posxy.kfNorth, north, rPos);
 
-        // groundSpeed is 0.1 m/s -> cm/s; groundCourse is decidegrees from North
-        const float speedCms = gpsSol.groundSpeed * 10.0f;
+        // groundSpeed is already cm/s (both NMEA and UBLOX parsers);
+        // groundCourse is decidegrees from North
+        const float speedCms = gpsSol.groundSpeed;
         const float courseRad = DECIDEGREES_TO_RADIANS(gpsSol.groundCourse);
         const float rVel = gpsMeasurementR(positionConfig()->est_r_gps_vel, gpsSol.hdop);
         kalmanUpdateVelocity(&posxy.kfEast, speedCms * sin_approx(courseRad), rVel);
@@ -821,20 +838,51 @@ void positionUpdate(void)
 
 #ifdef USE_RANGEFINDER
     // --- AGL altitude estimation from rangefinder ---
+    //
+    // positionUpdate() runs every PID loop, but the rangefinder only produces
+    // a new reading at its task rate and holds the last one in between.  Only
+    // act on new samples, otherwise the reliability ramp would run at loop
+    // rate and the vario would differentiate a staircase.
     if (sensors(SENSOR_RANGEFINDER)) {
-        const int32_t rawAlt = rangefinderGetLatestAltitude(); // tilt-compensated cm
+        const uint32_t sampleCount = rangefinderGetSampleCount();
 
-        if (rawAlt > 0) {
-            // Valid reading: update AGL estimate and increase reliability
-            const float newAgl = rawAlt / 100.0f; // convert cm to m
-            agl.aglVario = difFilterApply(&agl.varioFilter, newAgl);
-            agl.aglAlt = newAgl;
-            agl.reliability = MIN(1.0f, agl.reliability + AGL_RELIABILITY_INCREMENT);
-        } else {
-            // No valid reading: decay reliability
-            agl.reliability = MAX(0.0f, agl.reliability - AGL_RELIABILITY_DECREMENT);
+        if (sampleCount != agl.lastSampleCount) {
+            agl.lastSampleCount = sampleCount;
+
+            const int32_t rawAlt = rangefinderGetLatestAltitude(); // tilt-compensated cm
+
+            if (rawAlt > 0) {
+                // Valid reading: update AGL estimate and increase reliability
+                const timeUs_t nowUs = micros();
+                const float newAgl = rawAlt / 100.0f; // convert cm to m
+                const timeDelta_t gapUs = cmpTimeUs(nowUs, agl.lastValidUs);
+
+                if (agl.lastValid && gapUs > 0 && gapUs <= AGL_MAX_SAMPLE_GAP_US) {
+                    // Differentiate at the actual sample rate
+                    difFilterUpdate(&agl.varioFilter, AGL_VARIO_CUTOFF_HZ, 1e6f / gapUs);
+                    agl.aglVario = difFilterApply(&agl.varioFilter, newAgl);
+                }
+                else {
+                    // First sample after a gap: restart the differentiator
+                    // instead of producing a step from a stale value
+                    agl.varioFilter.x1 = newAgl;
+                    agl.varioFilter.y1 = 0.0f;
+                    agl.aglVario = 0.0f;
+                }
+
+                agl.aglAlt = newAgl;
+                agl.lastValidUs = nowUs;
+                agl.lastValid = true;
+                agl.validSamples++;
+                agl.reliability = MIN(1.0f, agl.reliability + AGL_RELIABILITY_INCREMENT);
+            } else {
+                // No valid reading: decay reliability
+                agl.lastValid = false;
+                agl.reliability = MAX(0.0f, agl.reliability - AGL_RELIABILITY_DECREMENT);
+            }
         }
     } else {
+        agl.lastValid = false;
         agl.reliability = 0.0f;
     }
 
@@ -910,12 +958,17 @@ void INIT_CODE positionInit(void)
     estimatorWasArmed = false;
 
 #ifdef USE_RANGEFINDER
-    difFilterInit(&agl.varioFilter, 1.0f, pidGetPidFrequency());
+    difFilterInit(&agl.varioFilter, AGL_VARIO_CUTOFF_HZ, 50.0f);
     agl.reliability = 0.0f;
     agl.aglAlt = 0.0f;
     agl.aglVario = 0.0f;
+    agl.lastSampleCount = 0;
+    agl.validSamples = 0;
+    agl.lastValidUs = 0;
+    agl.lastValid = false;
     alt.rfAltOffset = 0.0f;
     alt.rfOffsetSet = false;
+    alt.lastRfSample = 0;
 #endif
 
 #ifdef USE_OPTICAL_FLOW
