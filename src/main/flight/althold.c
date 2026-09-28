@@ -30,7 +30,7 @@
  *                       maxClimbRate               compensation
  *
  * The output overrides the normal collective setpoint only when
- * ALTHOLD_MODE is active.
+ * ALTHOLD_MODE is active and no rescue is in control of the collective.
  */
 
 #include <stdbool.h>
@@ -49,6 +49,7 @@
 #include "flight/imu.h"
 #include "flight/pid.h"
 #include "flight/position.h"
+#include "flight/rescue.h"
 #include "flight/althold.h"
 
 #include "pg/pid.h"
@@ -120,9 +121,23 @@ static float getCurrentVario(void)
  * Called every PID loop iteration (8 kHz) to update hold state.
  * Reads RC collective stick to update the altitude target.
  */
+/*
+ * Altitude hold only owns the collective when its mode is on and no rescue
+ * function is flying the helicopter.  Rescue (including its exit blend), GPS
+ * rescue and failsafe take priority; while they are in control the hold is
+ * disengaged so it re-latches the altitude afterwards instead of resuming
+ * with a stale target and a wound-up integrator.
+ */
+static bool altHoldEngaged(void)
+{
+    return FLIGHT_MODE(ALTHOLD_MODE) &&
+           !FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE) &&
+           getRescueState() == RESCUE_STATE_OFF;
+}
+
 void altHoldUpdate(void)
 {
-    if (!FLIGHT_MODE(ALTHOLD_MODE)) {
+    if (!altHoldEngaged()) {
         ah.active = false;
         ah.velIterm = 0;
         return;
@@ -171,13 +186,13 @@ void altHoldUpdate(void)
 }
 
 /*
- * Called from pidApplyCollective() in pid.c.
- * Returns the altitude-hold collective override, or the original
- * setpoint when ALTHOLD_MODE is not active.
+ * Called from pidApplyCollective() in pid.c, after rescueApply().
+ * Returns the altitude-hold collective override, or the incoming
+ * (pilot or rescue) collective when the hold is not engaged.
  */
 float altHoldApply(float collective)
 {
-    if (!FLIGHT_MODE(ALTHOLD_MODE)) {
+    if (!altHoldEngaged()) {
         return collective;
     }
 
