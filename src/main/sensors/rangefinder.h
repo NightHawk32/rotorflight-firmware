@@ -33,6 +33,7 @@ typedef struct rangefinder_s {
     int32_t rawAltitude;
     int32_t calculatedAltitude;
     timeMs_t lastValidResponseTimeMs;
+    uint32_t sampleCount;       // increments on every processed (non-repeat) reading
 
     bool snrThresholdReached;
     int32_t dynamicDistanceThreshold;
@@ -44,6 +45,7 @@ bool rangefinderInit(void);
 
 int32_t rangefinderGetLatestAltitude(void);
 int32_t rangefinderGetLatestRawAltitude(void);
+uint32_t rangefinderGetSampleCount(void);
 
 void rangefinderUpdate(void);
 bool rangefinderProcess(float cosTiltAngle);

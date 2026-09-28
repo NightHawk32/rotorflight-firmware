@@ -263,6 +263,8 @@ bool rangefinderProcess(float cosTiltAngle)
             return false;
         }
 
+        rangefinder.sampleCount++;
+
         if (distance >= 0) {
             rangefinder.lastValidResponseTimeMs = millis();
             rangefinder.rawAltitude = applyMedianFilter(distance);
@@ -341,6 +343,15 @@ int32_t rangefinderGetLatestAltitude(void)
 
 int32_t rangefinderGetLatestRawAltitude(void) {
     return rangefinder.rawAltitude;
+}
+
+/**
+ * Number of readings processed since boot (valid, out of range or failed).
+ * Consumers polling faster than the sensor use it to act once per sample.
+ */
+uint32_t rangefinderGetSampleCount(void)
+{
+    return rangefinder.sampleCount;
 }
 
 bool rangefinderIsHealthy(void)
