@@ -32,6 +32,7 @@ typedef enum {
     GPS_UBLOX,
     GPS_MSP,
     GPS_FBUS,
+    GPS_CRSF,       // GPS frames from a CRSF sensor accessory (drivers/crsf_sensors.c)
 } gpsProvider_e;
 
 typedef enum {
