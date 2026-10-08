@@ -101,8 +101,8 @@ Unless stated otherwise:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| 0 | Raw flow X (forward) | Module units, "cm/s at 1 m". Updated at 50 Hz |
-| 1 | Raw flow Y (left) | Same |
+| 0 | Flow X (forward) | Module units, "cm/s at 1 m", body frame after `optical_flow_align`. Updated at 50 Hz |
+| 1 | Flow Y (left) | Same |
 | 2 | Flow quality 0–255 | Not fused at 50 or below |
 | 3 | Height used for scaling | AGL, cm |
 | 4 | Flow scale ×100 | height / cos²(tilt) |
@@ -120,8 +120,11 @@ estimator does (`position_flow_gyro_comp`). Check that part **armed with props
 off**: fields 5/6 (velocity after compensation) must stay near zero while
 rotating in place. If they move about as much as without compensation but with
 the opposite sign, set `position_flow_gyro_comp = -100`; if they still move
-with the same sign, the module axes do not match the body frame (mounting or
-module orientation setting).
+with the same sign, the module axes do not match the body frame: fix
+`optical_flow_align`. The configurator's **Optical flow orientation** check
+(Position & Hold tab) does both measurements disarmed: two slides give the
+orientation, rocking in place gives `position_flow_gyro_comp` from the gyro
+rates in `MSP2_GET_POSITION_STATUS` (payload version 3).
 
 ### `RANGEFINDER`
 

@@ -177,6 +177,11 @@ const char * const lookupTableOpticalFlowHardware[] = {
     "NONE", "MICROLINK"
 };
 #endif
+#ifdef USE_OPTICAL_FLOW
+static const char * const lookupTableOpticalFlowAlign[] = {
+    "CW0", "CW90", "CW180", "CW270", "CW0FLIP", "CW90FLIP", "CW180FLIP", "CW270FLIP"
+};
+#endif
 
 const char * const lookupTableOffOn[] = {
     "OFF", "ON"
@@ -604,6 +609,7 @@ const lookupTableEntry_t lookupTables[] = {
 #endif
 #ifdef USE_OPTICAL_FLOW
     LOOKUP_TABLE_ENTRY(lookupTableOpticalFlowHardware),
+    LOOKUP_TABLE_ENTRY(lookupTableOpticalFlowAlign),
 #endif
 #ifdef USE_GYRO_OVERFLOW_CHECK
     LOOKUP_TABLE_ENTRY(lookupTableGyroOverflowCheck),
@@ -1669,6 +1675,7 @@ const clivalue_t valueTable[] = {
 // PG_OPTICAL_FLOW_CONFIG
 #ifdef USE_OPTICAL_FLOW
     { "optical_flow_hardware", VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OPTICAL_FLOW_HARDWARE }, PG_OPTICAL_FLOW_CONFIG, offsetof(opticalFlowConfig_t, optical_flow_hardware) },
+    { "optical_flow_align",    VAR_UINT8 | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OPTICAL_FLOW_ALIGN }, PG_OPTICAL_FLOW_CONFIG, offsetof(opticalFlowConfig_t, optical_flow_align) },
 #endif
 
 // PG_PINIO_CONFIG

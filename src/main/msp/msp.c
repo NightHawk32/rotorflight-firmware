@@ -1395,7 +1395,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
 #endif
 
     case MSP2_GET_POSITION_CONFIG:
-        sbufWriteU8(dst, 2);    // payload version
+        sbufWriteU8(dst, 3);    // payload version
         sbufWriteU8(dst, positionConfig()->alt_source);
         sbufWriteU8(dst, positionConfig()->xy_source);
         sbufWriteU8(dst, positionConfig()->baro_alt_lpf);
@@ -1423,7 +1423,9 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
 #endif
 #ifdef USE_OPTICAL_FLOW
         sbufWriteU8(dst, opticalFlowConfig()->optical_flow_hardware);
+        sbufWriteU8(dst, opticalFlowConfig()->optical_flow_align);
 #else
+        sbufWriteU8(dst, 0);
         sbufWriteU8(dst, 0);
 #endif
         break;
@@ -1456,7 +1458,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         positionStatus_t st;
         positionGetStatus(&st);
 
-        sbufWriteU8(dst, 2);    // payload version
+        sbufWriteU8(dst, 3);    // payload version
 
         // Estimator
         sbufWriteU16(dst, st.flags);
@@ -1525,6 +1527,11 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         // Terrain offset state (payload version 2)
         sbufWriteU32(dst, lrintf(st.terrainCm));
         sbufWriteU16(dst, constrain(lrintf(st.terrainSigmaCm), 0, UINT16_MAX));
+
+        // Body rates in the same snapshot as the flow sample, deg/s x10,
+        // for the configurator's flow orientation check (payload version 3)
+        sbufWriteU16(dst, constrain(lrintf(gyro.gyroADCf[FD_ROLL] * 10), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(gyro.gyroADCf[FD_PITCH] * 10), INT16_MIN, INT16_MAX));
         break;
     }
 
@@ -4412,7 +4419,7 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         // Sensor hardware and position_alt_source are read at boot, the
         // Kalman process noise at init / arming: the configurator reboots
         // after saving these.
-        if (sbufReadU8(src) != 2) {
+        if (sbufReadU8(src) != 3) {
             return MSP_RESULT_ERROR;
         }
         positionConfigMutable()->alt_source = sbufReadU8(src);
@@ -4442,7 +4449,10 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
 #endif
 #ifdef USE_OPTICAL_FLOW
         opticalFlowConfigMutable()->optical_flow_hardware = sbufReadU8(src);
+        opticalFlowConfigMutable()->optical_flow_align =
+            MIN(sbufReadU8(src), OPTICAL_FLOW_ALIGN_COUNT - 1);
 #else
+        sbufReadU8(src);
         sbufReadU8(src);
 #endif
         break;

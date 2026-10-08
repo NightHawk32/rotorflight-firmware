@@ -23,10 +23,11 @@
 #include "pg/pg_ids.h"
 #include "pg/optical_flow.h"
 
-PG_REGISTER_WITH_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig, PG_OPTICAL_FLOW_CONFIG, 0);
+PG_REGISTER_WITH_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig, PG_OPTICAL_FLOW_CONFIG, 1);
 
 PG_RESET_TEMPLATE(opticalFlowConfig_t, opticalFlowConfig,
     .optical_flow_hardware = OPTICAL_FLOW_MICROLINK,
+    .optical_flow_align = OPTICAL_FLOW_ALIGN_CW0,
 );
 
 #endif
