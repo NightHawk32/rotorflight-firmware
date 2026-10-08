@@ -340,7 +340,12 @@ static const blackboxSimpleFieldDefinition_t blackboxSlowFields[] = {
 
     {"failsafePhase",         -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)},
     {"rxSignalReceived",      -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)},
-    {"rxFlightChannelsValid", -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)}
+    {"rxFlightChannelsValid", -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)},
+
+    // Modes actually active (flightModeFlags_e), not the switch boxes:
+    // flightModeFlags above only holds the first 32 boxes, which leaves out
+    // POSHOLD and HARD DECK, and a switched-on mode can still be inactive
+    {"activeFlightModes",     -1, UNSIGNED, PREDICT(0),      ENCODING(UNSIGNED_VB)}
 };
 
 typedef enum BlackboxState {
@@ -448,6 +453,7 @@ typedef struct blackboxSlowState_s {
     uint8_t failsafePhase;
     bool rxSignalReceived;
     bool rxFlightChannelsValid;
+    uint16_t activeFlightModes;
 } __attribute__((__packed__)) blackboxSlowState_t; // We pack this struct so that padding doesn't interfere with memcmp()
 
 //From rc_controls.c
@@ -1101,6 +1107,8 @@ static void writeSlowFrame(void)
     values[1] = slowHistory.rxSignalReceived ? 1 : 0;
     values[2] = slowHistory.rxFlightChannelsValid ? 1 : 0;
     blackboxWriteTag2_3S32(values);
+
+    blackboxWriteUnsignedVB(slowHistory.activeFlightModes);
 }
 
 /**
@@ -1113,6 +1121,7 @@ static void loadSlowState(blackboxSlowState_t *slow)
     slow->failsafePhase = failsafePhase();
     slow->rxSignalReceived = rxIsReceivingSignal();
     slow->rxFlightChannelsValid = rxAreFlightChannelsValid();
+    slow->activeFlightModes = flightModeFlags;
 }
 
 /**
@@ -1843,6 +1852,10 @@ static bool blackboxWriteSysinfo(void)
 #endif
 #ifdef USE_OPTICAL_FLOW
         BLACKBOX_PRINT_HEADER_LINE("optical_flow_hardware", "%d",           opticalFlowConfig()->optical_flow_hardware);
+        BLACKBOX_PRINT_HEADER_LINE("optical_flow_align", "%d",              opticalFlowConfig()->optical_flow_align);
+#endif
+#ifdef USE_GPS
+        BLACKBOX_PRINT_HEADER_LINE("gps_provider", "%d",                    gpsConfig()->provider);
 #endif
         BLACKBOX_PRINT_HEADER_LINE("pid_rate_hz", "%d",                     (int)lrintf(pidGetPidFrequency()));
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_DEBUG_MODE, "%d",             debugMode);
