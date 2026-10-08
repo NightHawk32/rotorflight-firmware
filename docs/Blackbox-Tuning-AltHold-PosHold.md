@@ -257,6 +257,8 @@ Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
 | `position_baro_downwash_comp` | `position_baro_downwash_comp` |
 | `position_flow_gyro_comp` | `position_flow_gyro_comp` |
 | `rangefinder_hardware`, `optical_flow_hardware` | Enum index |
+| `optical_flow_align` | Enum index (`CW0`, `CW90`, `CW180`, `CW270`, then the `FLIP` variants) |
+| `gps_provider` | Enum index (`NMEA`, `UBLOX`, `MSP`, `FBUS`, `CRSF`) |
 | `pid_rate_hz` | PID loop rate |
 
 The existing header lines (PIDs, filters, `debug_mode`, …) are unchanged.
@@ -266,11 +268,15 @@ The existing header lines (PIDs, filters, `debug_mode`, …) are unchanged.
 ## 6. Limitations
 
 - `flightModeFlags` in the blackbox slow frames covers only the first 32 mode
-  boxes, so **POSHOLD and HARD DECK switch states are not in it**. Use the
-  debug fields instead: `ALTHOLD` field 7, `POSHOLD` all non-zero, `HARDDECK`
-  field 0.
+  **switch** boxes, so the POSHOLD and HARD DECK switches are not in it. The
+  slow frames therefore also carry `activeFlightModes`: the modes actually
+  active (`flightModeFlags_e`: bit 4 ALTHOLD, 5 RESCUE, 7 POSHOLD, 8 HARD
+  DECK, 0 FAILSAFE). A switched-on mode that is not engaged (POSHOLD without
+  ALTHOLD or a valid XY estimate) reads 0 here. Within the debug modes,
+  `ALTHOLD` field 7, `POSHOLD` all non-zero and `HARDDECK` field 0 show the
+  same.
 - Blackbox Explorer does not know the new debug modes. It shows them as
   `debug[0]` … `debug[7]`; use the tables above.
 - GPS Doppler vertical velocity, the N/E velocity and the accuracy estimates
   (u-blox) are fused but not logged. The `gps_provider` header line tells
-  whether they existed at all (`UBLOX` only).
+  whether they existed at all (`UBLOX` only; `CRSF` has none of them).
