@@ -246,7 +246,8 @@ make TARGET=STM32F405 DEBUG=GDB -j4
 ### 4.3 CLI configuration
 
 1. Identify a free UART (e.g. `UART3`) and assign the MicroLink function to it.
-   Use the numeric identifier for your UART (see `docs/Serial.md`) and the
+   Use the numeric identifier for your UART (UART1 = 0, UART2 = 1, …,
+   UART6 = 5, USB VCP = 20; the `serial` CLI command lists them) and the
    `FUNCTION_MICROLINK` bitmask (8388608). Baud-rate arguments are ignored for
    this function but must still be supplied:
    ```
