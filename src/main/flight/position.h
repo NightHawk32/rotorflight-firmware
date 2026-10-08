@@ -83,7 +83,7 @@ typedef struct positionStatus_s {
     float       aglVarioCms;
     float       aglReliability;     // 0..1
     int32_t     rangefinderRawCm;
-    int16_t     flowX;              // raw, cm/s @ 1m
+    int16_t     flowX;              // cm/s @ 1m, body frame (optical_flow_align applied)
     int16_t     flowY;
     uint8_t     flowQuality;
     uint8_t     flowStatus;         // see DEBUG_OPTICAL_FLOW[7]

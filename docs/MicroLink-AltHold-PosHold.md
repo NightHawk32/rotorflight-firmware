@@ -144,7 +144,8 @@ flowchart TD
 | `position_est_r_gps_vvel` | 400 | GPS Doppler vertical velocity noise floor, (cm/s)² (u-blox only) |
 | `position_est_q_baro_bias` | 400 | Baro downwash bias random walk, cm²/s |
 | `position_est_q_terrain` | 200 | Terrain offset random walk, cm² per metre flown. Lets the LIDAR follow ground-height changes while moving without pulling the fused altitude; 0 freezes it |
-| `position_flow_gyro_comp` | 100 | Optical-flow body-rate compensation, % (−200…200). 100 = physical value, 0 = off, negative for a module whose axes are mirrored. Verify with test 1 of the tuning doc |
+| `position_flow_gyro_comp` | 100 | Optical-flow body-rate compensation, % (−200…200). 100 = physical value, 0 = off, negative for a module whose axes are mirrored. Verify with test 1 of the tuning doc, or measure it with the configurator's orientation check |
+| `optical_flow_align` | `CW0` | Mounting of the flow sensor, seen from above: `CW0`/`CW90`/`CW180`/`CW270` = the sensor's X axis points that many degrees clockwise from the nose, `…FLIP` mirrors the sensor's Y axis first. Applied in `sensors/optical_flow.c`, so the debug fields, MSP and the estimator all see body-frame flow. Find it with the **Optical flow orientation** check in the configurator's Position & Hold tab |
 | `position_baro_downwash_comp` | 30 | Baro downwash handling strength (×10), 0 = off. See [HardDeck.md](HardDeck.md#2-altitude-estimation-baro-in-the-downwash-gps-and-imu) |
 
 `position_vario_lpf` still exists but no longer has any effect: the vario now
@@ -259,6 +260,9 @@ make TARGET=STM32F405 DEBUG=GDB -j4
    set rangefinder_hardware = MICROLINK
    set optical_flow_hardware = MICROLINK
    ```
+   If the sensor is not mounted with its X axis to the nose, set
+   `optical_flow_align` as well (or let the configurator's orientation check
+   find it).
 
 3. Enable the rangefinder feature (required for `TASK_RANGEFINDER`, and hence
    for LIDAR AGL altitude, to run):
