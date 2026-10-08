@@ -69,7 +69,7 @@ Use the Position & Hold tab, **Live: sensors**.
 | 2.5 | Unplug the MicroLink UART connector while powered | Optical flow shows **No data** within 0.5 s. Height becomes invalid. Plug back in: recovers without reboot |
 | 2.6 | Hold ~1 m over a textured floor in good light | Flow quality > 50 (meter past the mark) |
 | 2.7 | Same over a plain white sheet or in the dark | Quality drops. Note the values: this is where position hold will stop using flow |
-| 2.8 | **Flow direction check**: hold level ~1 m up. Slide forward, then right | Arrow points **up** for forward and **right** for right. If not, the sensor is rotated or mirrored: fix mounting before anything else |
+| 2.8 | **Flow direction check**: hold level ~1 m up. Slide forward, then right | Arrow points **up** for forward and **right** for right. If not, the sensor is rotated or mirrored: run the **Optical flow orientation** check and apply its `optical_flow_align` before anything else |
 | 2.9 | Hold still, pitch forward/back and roll left/right 20° | Note whether raw flow X/Y move in step with the rotation (no gyro compensation in the module). Report the result |
 | 2.10 | Leave the model still for 5 min (GPS outdoors if possible) | Live: altitude estimate: fused altitude stays within ±0.5 m *(initial target)*. Uncertainty settles (< 1 m with GPS fix) |
 | 2.11 | Lift by 1 m and hold | Fused altitude follows within 1–2 s. Baro, GPS and LIDAR traces agree |

@@ -101,6 +101,38 @@ bool opticalFlowInit(void)
 }
 
 /*
+ * Rotate a sensor-frame flow sample into the body frame (x forward, y left)
+ * according to optical_flow_align.  CWn: the sensor's X axis points n
+ * degrees clockwise from the nose, seen from above.  FLIP mirrors the
+ * sensor's Y axis before the rotation.
+ */
+static void opticalFlowAlign(int16_t *flowX, int16_t *flowY)
+{
+    const uint8_t align = opticalFlowConfig()->optical_flow_align;
+    const int16_t sx = *flowX;
+    const int16_t sy = (align >= OPTICAL_FLOW_ALIGN_CW0FLIP) ? -*flowY : *flowY;
+
+    switch (align % 4) {
+        case 1:     // CW90: sensor X = body right, sensor Y = body forward
+            *flowX = sy;
+            *flowY = -sx;
+            break;
+        case 2:     // CW180
+            *flowX = -sx;
+            *flowY = -sy;
+            break;
+        case 3:     // CW270: sensor X = body left, sensor Y = body backward
+            *flowX = -sy;
+            *flowY = sx;
+            break;
+        default:    // CW0
+            *flowX = sx;
+            *flowY = sy;
+            break;
+    }
+}
+
+/*
  * This is called periodically by the scheduler
  */
 void opticalFlowUpdate(void)
@@ -115,6 +147,7 @@ void opticalFlowUpdate(void)
         uint8_t quality;
         
         if (opticalFlow.dev.read(&opticalFlow.dev, &flowX, &flowY, &quality)) {
+            opticalFlowAlign(&flowX, &flowY);
             opticalFlow.lastValidResponseTimeMs = millis();
             opticalFlow.flowX = flowX;
             opticalFlow.flowY = flowY;
