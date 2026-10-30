@@ -108,7 +108,7 @@ Unless stated otherwise:
 | 4 | Flow scale ×100 | height / cos²(tilt) |
 | 5 | Velocity forward | cm/s, last fused sample |
 | 6 | Velocity right | cm/s, last fused sample |
-| 7 | Status of latest sample | 0 fused, 1 disabled by `position_xy_source`, 2 no sensor / timeout, 3 no valid AGL, 4 quality too low, 5 tilt above 45° |
+| 7 | Status of latest sample | 0 fused, 1 disabled by `position_xy_source`, 2 no sensor / timeout, 3 no valid AGL, 4 quality too low, 5 tilt above 45°, 6 rejected as an outlier (more than 5σ from the IMU-propagated estimate; after 5 rejections in a row samples are accepted again) |
 
 The estimator runs armed and disarmed (arming resets the position to the arm
 point), so all fields update on the bench too.
