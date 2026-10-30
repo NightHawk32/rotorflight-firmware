@@ -176,6 +176,7 @@ enum {
 #define Z_MEASUREMENT_TIMEOUT_MS    2000
 #define XY_MEASUREMENT_TIMEOUT_MS   500     // flow
 #define XY_GPS_TIMEOUT_MS           2000    // GPS: a CRSF/FBUS GPS may only report at 1 Hz
+#define XY_VEL_DECAY_TAU_S          1.0f    // velocity decay without any XY measurement
 // Body-rate history for the flow rotation compensation, one entry per
 // estimator step: covers position_flow_gyro_delay (max 250 ms) plus the
 // averaging window
@@ -926,7 +927,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
         // nose down).  Subtracting that leaves the translation.  The
         // rate is the mean over the flow interval, since the module
         // integrates over its frame time, taken flow_gyro_delay earlier
-        // (bench measurement: ~50 ms).  flow_gyro_comp is in percent
+        // (MicroLink: ~40 ms).  flow_gyro_comp is in percent
         // of the physical value; a negative value handles a module whose
         // axes are mirrored against the body frame.
         const float comp = positionConfig()->flow_gyro_comp;   // cm/s@1m per rad/s at 100 %
@@ -1013,6 +1014,17 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
 #endif
     const bool flowFresh =
         posxy.lastFlowFuseMs != 0 && (nowMs - posxy.lastFlowFuseMs) < XY_MEASUREMENT_TIMEOUT_MS;
+
+    // Without any velocity measurement the filter only integrates the IMU
+    // acceleration, so the velocity keeps whatever value it last had (after
+    // a landing the LIDAR drops below its range and the flow stops being
+    // fused: tens of cm/s, running the position off by metres).  Let it
+    // decay to zero instead.  The estimate is marked invalid meanwhile.
+    if (!gpsFresh && !flowFresh) {
+        const float decay = 1.0f - constrainf(dt / XY_VEL_DECAY_TAU_S, 0.0f, 1.0f);
+        posxy.kfEast.x[1] *= decay;
+        posxy.kfNorth.x[1] *= decay;
+    }
 
     // Hard dead-reckoning bound: without an absolute (GPS) anchor the position
     // is velocity-integrated only, so clamp its radius.  Never applied while
