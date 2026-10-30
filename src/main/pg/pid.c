@@ -129,12 +129,12 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .governor.fallback_drop = 10,
         .governor.dyn_min_throttle = 80,
         // Altitude hold defaults
-        .althold.alt_p_gain = 20,       // Kp_alt = 2.0 (×10 scale)
-        .althold.alt_i_gain = 5,        // Ki_vel small integral
-        .althold.alt_d_gain = 15,       // Kd applied to vario
+        .althold.alt_p_gain = 10,       // altitude error -> climb rate, 1.0 /s
+        .althold.alt_i_gain = 5,        // climb rate error integral, 50 collective per m/s per s
+        .althold.alt_d_gain = 15,       // climb rate error -> collective, 75 per m/s
         .althold.max_climb_rate = 200,  // 200 cm/s max climb/descent
         .althold.stick_deadband = 100,  // 10% deadband on collective stick
-        .althold.hover_collective = 350, // feed-forward hover collective
+        .althold.hover_collective = 350, // fallback while the altitude is invalid (engaging is bumpless)
         // Position hold defaults
         .poshold.pos_p_gain = 50,       // position → velocity (0.5 m/s per m error)
         .poshold.vel_p_gain = 30,       // velocity → angle  (0.3 deg per cm/s error)

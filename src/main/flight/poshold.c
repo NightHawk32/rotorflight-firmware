@@ -98,8 +98,9 @@ void posHoldUpdate(void)
         return;
     }
 
-    // Safety: require optical flow XY estimate and altitude hold
-    if (!isPositionXYValid() || !FLIGHT_MODE(ALTHOLD_MODE)) {
+    // Requires a valid XY estimate.  Altitude hold is independent: without
+    // it the pilot keeps flying the collective while this holds position.
+    if (!isPositionXYValid()) {
         ph.active = false;
         posHoldDebugClear();
         return;

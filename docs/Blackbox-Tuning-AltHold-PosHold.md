@@ -82,7 +82,7 @@ Do them in this order. Each one builds on the previous one.
 | 3b | Terrain | `POS_EST_TERRAIN` | Hover 20 s over one spot at ~1.5 m, then fly slowly over a step (table, kerb, bank) and back, then a 20 m traverse over flat ground at ~2 m/s. |
 | 4 | Altitude Hold | `ALTHOLD` | Hover, ALTHOLD on, hands off collective for 20 s. Then collective up ~1 s, release, wait 10 s; same down. Repeat once at a different height. |
 | 5 | Horizontal estimator | `POS_EST_XY` | Manual hover (no POSHOLD) for 20 s, then translate 5 m forward and back, 5 m right and back, and a slow 360° pirouette. |
-| 6 | Position Hold | `POSHOLD` | ALTHOLD + POSHOLD on, hands off for 30 s. Push cyclic in each direction for ~1 s and release. Yaw 90° and repeat one push. |
+| 6 | Position Hold | `POSHOLD` | POSHOLD on (with or without ALTHOLD; without it you fly the collective), hands off the cyclic for 30 s. Push cyclic in each direction for ~1 s and release. Yaw 90° and repeat one push. |
 | 7 | Hard deck | `HARDDECK` | Follow [HardDeck.md §5](HardDeck.md#5-testing-procedure). |
 
 For tests 4, 6 and 7, fly one log with default gains first, then change one thing at a time.
@@ -192,15 +192,22 @@ if field 4 wanders on flat ground, lower it.
 | 0 | Target altitude | In the frame of field 1 |
 | 1 | Current altitude used | AGL when flag 2 is set, otherwise the fused altitude |
 | 2 | Current vario used | Same source as field 1 |
-| 3 | P term ×10 | Collective units (0–1000) ×10 |
-| 4 | I term ×10 | Same |
-| 5 | D term ×10 | Same (damping on vario) |
+| 3 | Climb-rate term ×10 | Collective units (0–1000) ×10: `althold_alt_d_gain × 5 × (velocity command − vario)` |
+| 4 | I term ×10 | Same units. Starts at (pilot collective − `althold_hover_collective`) on engage |
+| 5 | Velocity command | cm/s |
 | 6 | Output collective | 0–1000. When not engaged: the pass-through collective |
-| 7 | Flags | 1 engaged, 2 using AGL, 4 altitude source valid, 8 pilot moving target with the stick, 16 mode on but yielding to rescue/failsafe |
+| 7 | Flags | 1 engaged, 2 using AGL, 4 altitude source valid, 8 pilot moving target with the stick, 16 mode on but yielding to rescue/failsafe, 32 switched off and blending back to the stick (1 s) |
 
-The output is `(althold_hover_collective + P + I + D) × cos²(tilt)`, clamped to
-0–1000. The velocity command is
+The output is `(althold_hover_collective + climb-rate term + I) × cos²(tilt)`,
+clamped to 0–1000. The velocity command is
 `clamp(althold_alt_p_gain/10 × (target − current), ±althold_max_climb_rate)`.
+Engaging is bumpless: the I term starts so that the output equals the collective
+the model was flying with. Switching off blends from the hold's collective back
+to the stick over 1 s (field 6 shows the blend); a rescue or failsafe takes over
+at once. Still, put the stick back near where it was at engage before switching
+off. The collective stick is read relative to its position
+at engage: within the deadband of that point the target holds, beyond it the
+target moves at up to the max climb rate.
 
 ### `POSHOLD`
 
