@@ -176,6 +176,11 @@ enum {
 #define Z_MEASUREMENT_TIMEOUT_MS    2000
 #define XY_MEASUREMENT_TIMEOUT_MS   500     // flow
 #define XY_GPS_TIMEOUT_MS           2000    // GPS: a CRSF/FBUS GPS may only report at 1 Hz
+// Body-rate history for the flow rotation compensation, one entry per
+// estimator step: covers position_flow_gyro_delay (max 250 ms) plus the
+// averaging window
+#define FLOW_GYRO_HISTORY           34
+#define FLOW_GYRO_WINDOW_MAX        8       // steps averaged per flow sample (80 ms)
 // Accuracy assumed for a GPS that reports neither an accuracy estimate nor
 // a DOP (CRSF sensor GPS): 1 sigma, cm and cm/s
 #define GPS_ASSUMED_HACC_CM         250
@@ -279,6 +284,12 @@ static FAST_DATA altState_t alt;
 static FAST_DATA timeUs_t estimatorLastUs;
 static FAST_DATA bool estimatorWasArmed;
 
+// Body rate summed over the PID loops of the current estimator step, so the
+// flow compensation sees the mean rate rather than one sample per step
+static FAST_DATA float gyroRollSum;
+static FAST_DATA float gyroPitchSum;
+static FAST_DATA uint32_t gyroSumCount;
+
 #ifdef USE_RANGEFINDER
 typedef struct {
     float       aglAlt;         // AGL altitude in meters
@@ -314,13 +325,16 @@ typedef struct {
     bool        clamped;        // dead-reckoning clamp applied this step
     float       flowVelEast;    // last fused flow velocity (cm/s)
     float       flowVelNorth;
+    float       flowCompFwd;    // latest flow after rotation compensation, body frame
+    float       flowCompLeft;   // (cm/s at 1 m), whether fused or not
 
-    // Body rate integrated since the previous flow sample (deg), and the
-    // time it covers (s): its mean over the flow interval is subtracted
-    // from the flow (a rotating camera sees the ground move too)
-    float       gyroRollInt;
-    float       gyroPitchInt;
-    float       gyroIntTime;
+    // Mean body rate (deg/s) of each past estimator step, newest at
+    // gyroHistIdx.  The flow module reports its samples with a delay
+    // (position_flow_gyro_delay), so the rate subtracted from a flow sample
+    // is the mean over the interval the sample covers, that long ago.
+    float       gyroRollHist[FLOW_GYRO_HISTORY];
+    float       gyroPitchHist[FLOW_GYRO_HISTORY];
+    uint8_t     gyroHistIdx;
 
 #ifdef USE_GPS
     timeMs_t    lastGpsFuseMs;
@@ -776,9 +790,8 @@ static void estimatorResetXY(void)
     posxy.flowStatus = FLOW_STATUS_NO_SENSOR;
     posxy.flowVelEast = 0;
     posxy.flowVelNorth = 0;
-    posxy.gyroRollInt = 0;
-    posxy.gyroPitchInt = 0;
-    posxy.gyroIntTime = 0;
+    posxy.flowCompFwd = 0;
+    posxy.flowCompLeft = 0;
     posxy.posX = 0;
     posxy.posY = 0;
     posxy.velX = 0;
@@ -791,26 +804,43 @@ static void estimatorResetXY(void)
 #endif
 }
 
-static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float accelNorth, bool armed)
+// Mean body rate (deg/s) over windowSteps estimator steps, ending delaySteps
+// before the newest one
+static void flowGyroRate(uint8_t delaySteps, uint8_t windowSteps, float *rollRate, float *pitchRate)
+{
+    float roll = 0.0f;
+    float pitch = 0.0f;
+
+    for (uint8_t i = 0; i < windowSteps; i++) {
+        const uint8_t idx = (posxy.gyroHistIdx + FLOW_GYRO_HISTORY - delaySteps - i) % FLOW_GYRO_HISTORY;
+        roll += posxy.gyroRollHist[idx];
+        pitch += posxy.gyroPitchHist[idx];
+    }
+
+    *rollRate = roll / windowSteps;
+    *pitchRate = pitch / windowSteps;
+}
+
+// Runs armed and disarmed, so the flow velocity and the position can be
+// checked on the bench.  Disarmed, the IMU acceleration is not used (the
+// filter only smooths the measurements, as the Z filter does); arming resets
+// the frame to the arm point.  The controllers only act while armed.
+static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float accelNorth,
+                              float rollRate, float pitchRate, bool armed)
 {
     const uint8_t xySource = positionConfig()->xy_source;
 
     if (!armed) {
-        posxy.valid = false;
-        posxy.gpsFresh = false;
-        posxy.flowFresh = false;
-        posxy.clamped = false;
-        DEBUG(POS_EST_XY, 7, 0);
-        return;
+        accelEast = 0.0f;
+        accelNorth = 0.0f;
     }
 
     kalmanPredict(&posxy.kfEast, dt, accelEast);
     kalmanPredict(&posxy.kfNorth, dt, accelNorth);
 
-    // Integrate the body rate between flow samples (see the flow section)
-    posxy.gyroRollInt += gyro.gyroADCf[FD_ROLL] * dt;
-    posxy.gyroPitchInt += gyro.gyroADCf[FD_PITCH] * dt;
-    posxy.gyroIntTime += dt;
+    posxy.gyroHistIdx = (posxy.gyroHistIdx + 1) % FLOW_GYRO_HISTORY;
+    posxy.gyroRollHist[posxy.gyroHistIdx] = rollRate;
+    posxy.gyroPitchHist[posxy.gyroHistIdx] = pitchRate;
 
 #ifdef USE_GPS
     // --- GPS position/velocity: fused once per new GPS message ---
@@ -870,18 +900,40 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
         posxy.flowStatus = FLOW_STATUS_NO_SENSOR;
     }
     else if (opticalFlowGetLastUpdateMs() != posxy.lastFlowSampleMs) {
-        posxy.lastFlowSampleMs = opticalFlowGetLastUpdateMs();
+        // Mean body rate (deg/s) over the interval this flow sample covers,
+        // shifted back by the module's latency
+        const timeMs_t sampleMs = opticalFlowGetLastUpdateMs();
+        const uint32_t intervalMs = posxy.lastFlowSampleMs ? sampleMs - posxy.lastFlowSampleMs : 20;
+        const uint8_t windowSteps = constrain((intervalMs + 5) / 10, 1, FLOW_GYRO_WINDOW_MAX);
+        const uint8_t delaySteps = (positionConfig()->flow_gyro_delay + 5) / 10;
+        posxy.lastFlowSampleMs = sampleMs;
 
-        // Mean body rate (deg/s) over the interval this flow sample covers
-        float rollRate = 0.0f;
-        float pitchRate = 0.0f;
-        if (posxy.gyroIntTime > 0.0f) {
-            rollRate = posxy.gyroRollInt / posxy.gyroIntTime;
-            pitchRate = posxy.gyroPitchInt / posxy.gyroIntTime;
-        }
-        posxy.gyroRollInt = 0.0f;
-        posxy.gyroPitchInt = 0.0f;
-        posxy.gyroIntTime = 0.0f;
+        float rollRate, pitchRate;
+        flowGyroRate(delaySteps, windowSteps, &rollRate, &pitchRate);
+
+        // Body-rate compensation.
+        //
+        // The module reports raw angular flow in "cm/s at 1m", i.e. the
+        // angular rate of the image times 100 cm.  A camera that rotates
+        // sees the ground move as well: in the FLU body frame (x forward,
+        // y left, z up; the frame rMat and the gyro use) a fixed ground
+        // point at (0, 0, -h) moves at -w x r = (h*wy, -h*wx, 0), and
+        // the module reports the opposite (the vehicle's motion):
+        //
+        //     flow_x(rot) = -100 * wy      flow_y(rot) = +100 * wx
+        //
+        // with wx, wy the roll and pitch rate in rad/s (pitch positive
+        // nose down).  Subtracting that leaves the translation.  The
+        // rate is the mean over the flow interval, since the module
+        // integrates over its frame time, taken flow_gyro_delay earlier
+        // (bench measurement: ~50 ms).  flow_gyro_comp is in percent
+        // of the physical value; a negative value handles a module whose
+        // axes are mirrored against the body frame.
+        const float comp = positionConfig()->flow_gyro_comp;   // cm/s@1m per rad/s at 100 %
+        const float flowFwd  = opticalFlowGetLatestX() + comp * DEGREES_TO_RADIANS(pitchRate);
+        const float flowLeft = opticalFlowGetLatestY() - comp * DEGREES_TO_RADIANS(rollRate);
+        posxy.flowCompFwd = flowFwd;
+        posxy.flowCompLeft = flowLeft;
 
         const uint8_t quality = opticalFlowGetLatestQuality();
 
@@ -904,27 +956,6 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
                 (float)(quality - FLOW_QUALITY_MIN) / (255.0f - FLOW_QUALITY_MIN),
                 0.01f, 1.0f);
             const float flowR = positionConfig()->est_r_flow_vel / qualityNorm;
-
-            // Body-rate compensation.
-            //
-            // The module reports raw angular flow in "cm/s at 1m", i.e. the
-            // angular rate of the image times 100 cm.  A camera that rotates
-            // sees the ground move as well: in the FLU body frame (x forward,
-            // y left, z up; the frame rMat and the gyro use) a fixed ground
-            // point at (0, 0, -h) moves at -w x r = (h*wy, -h*wx, 0), and
-            // the module reports the opposite (the vehicle's motion):
-            //
-            //     flow_x(rot) = -100 * wy      flow_y(rot) = +100 * wx
-            //
-            // with wx, wy the roll and pitch rate in rad/s (pitch positive
-            // nose down).  Subtracting that leaves the translation.  The
-            // rate is the mean over the flow interval, since the module
-            // integrates over its frame time.  flow_gyro_comp is in percent
-            // of the physical value; a negative value handles a module whose
-            // axes are mirrored against the body frame.
-            const float comp = positionConfig()->flow_gyro_comp;   // cm/s@1m per rad/s at 100 %
-            const float flowFwd  = opticalFlowGetLatestX() + comp * DEGREES_TO_RADIANS(pitchRate);
-            const float flowLeft = opticalFlowGetLatestY() - comp * DEGREES_TO_RADIANS(rollRate);
 
             // Flow -> ground velocity.
             //
@@ -1054,9 +1085,19 @@ static void estimatorUpdate(void)
     const timeUs_t nowUs = micros();
     const timeMs_t nowMs = millis();
 
+    gyroRollSum += gyro.gyroADCf[FD_ROLL];
+    gyroPitchSum += gyro.gyroADCf[FD_PITCH];
+    gyroSumCount++;
+
     if (estimatorLastUs != 0 && cmpTimeUs(nowUs, estimatorLastUs) < ESTIMATOR_PERIOD_US) {
         return;
     }
+
+    const float rollRate = gyroRollSum / gyroSumCount;
+    const float pitchRate = gyroPitchSum / gyroSumCount;
+    gyroRollSum = 0.0f;
+    gyroPitchSum = 0.0f;
+    gyroSumCount = 0;
 
     float dt = (estimatorLastUs != 0) ? cmpTimeUs(nowUs, estimatorLastUs) * 1e-6f
                                       : ESTIMATOR_PERIOD_US * 1e-6f;
@@ -1083,10 +1124,12 @@ static void estimatorUpdate(void)
     estimatorUpdateZ(nowMs, dt, accelUp, armed);
 
 #ifdef USE_OPTICAL_FLOW
-    estimatorUpdateXY(nowMs, dt, accelEast, accelNorth, armed);
+    estimatorUpdateXY(nowMs, dt, accelEast, accelNorth, rollRate, pitchRate, armed);
 #else
     UNUSED(accelEast);
     UNUSED(accelNorth);
+    UNUSED(rollRate);
+    UNUSED(pitchRate);
 #endif
 }
 
@@ -1323,6 +1366,8 @@ void positionGetStatus(positionStatus_t *st)
                                         kalmanGetPositionVariance(&posxy.kfNorth)), 0.0f));
     st->flowVelEastCms = posxy.flowVelEast;
     st->flowVelNorthCms = posxy.flowVelNorth;
+    st->flowCompFwd = posxy.flowCompFwd;
+    st->flowCompLeft = posxy.flowCompLeft;
 #else
     st->flowX = 0;
     st->flowY = 0;
@@ -1335,6 +1380,8 @@ void positionGetStatus(positionStatus_t *st)
     st->posSigmaCm = 0;
     st->flowVelEastCms = 0;
     st->flowVelNorthCms = 0;
+    st->flowCompFwd = 0;
+    st->flowCompLeft = 0;
 #endif
 
     st->flags = flags;

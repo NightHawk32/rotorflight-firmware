@@ -69,8 +69,8 @@ Use the Position & Hold tab, **Live: sensors**.
 | 2.5 | Unplug the MicroLink UART connector while powered | Optical flow shows **No data** within 0.5 s. Height becomes invalid. Plug back in: recovers without reboot |
 | 2.6 | Hold ~1 m over a textured floor in good light | Flow quality > 50 (meter past the mark) |
 | 2.7 | Same over a plain white sheet or in the dark | Quality drops. Note the values: this is where position hold will stop using flow |
-| 2.8 | **Flow direction check**: hold level ~1 m up. Slide forward, then right | Arrow points **up** for forward and **right** for right. If not, the sensor is rotated or mirrored: run the **Optical flow orientation** check and apply its `optical_flow_align` before anything else |
-| 2.9 | Hold still, pitch forward/back and roll left/right 20° | Note whether raw flow X/Y move in step with the rotation (no gyro compensation in the module). Report the result |
+| 2.8 | **Flow direction check** (**Optical flow orientation**): model standing level over a textured surface. Slide it forward, then right, or pull a textured mat under it backward, then left. If the sensor is too close to the floor to see texture, rest the model on two supports | Arrow points **up** for forward and **right** for right, and the check reports the orientation as correct. If not, apply its `optical_flow_align`, save, repeat |
+| 2.9 | *(optional)* Rotation compensation: rest the model on two supports or a table edge, ground ≥0.5 m below the sensor, and rock it by ~20° in pitch and roll. **Rotation compensation** section, or `tools/msp_flowcheck.py COM5` | Compensated flow stays well below the raw flow; *Rotation removed* ≥ 60 % *(initial target)*. Rocking on the floor gives no result (see the tuning doc, test 1). The real check is the hover log of 4.0 |
 | 2.10 | Leave the model still for 5 min (GPS outdoors if possible) | Live: altitude estimate: fused altitude stays within ±0.5 m *(initial target)*. Uncertainty settles (< 1 m with GPS fix) |
 | 2.11 | Lift by 1 m and hold | Fused altitude follows within 1–2 s. Baro, GPS and LIDAR traces agree |
 
@@ -78,8 +78,9 @@ Use the Position & Hold tab, **Live: sensors**.
 
 ## Phase 3: Bench armed, motors safe (blades off / motor unplugged)
 
-The horizontal estimator and the controllers only run while armed. Use a
-props-off setup that lets you arm.
+The horizontal estimator also runs disarmed (Live: horizontal works on the
+bench, arming resets it to the arm point); the controllers only act while
+armed. Use a props-off setup that lets you arm.
 
 | # | Step | Pass |
 | --- | --- | --- |
@@ -104,11 +105,12 @@ No new modes switched on. These logs show the raw quality of the estimates.
 
 | # | Flight | `debug_mode` | Pass |
 | --- | --- | --- | --- |
+| 4.0 | Tuning test 1: hover at 1–2 m for 30–60 s | `OPTICAL_FLOW` | `bbl_tune.py`: flow_gyro_comp fit near 100 on both axes, rotation left < 30 % with the delay as set. Apply the fitted `position_flow_gyro_delay` if it differs by 20 ms or more |
 | 4.1 | Tuning test 2: hover at 0.5 / 1 / 2 / 4 m, pass over an edge | `RANGEFINDER` | AGL valid throughout the hover heights. Over the edge the height steps cleanly, no spikes |
 | 4.2 | Tuning test 3: hover, climbs, collective punches, flips if flown | `POS_EST_Z` | Fused altitude has no jumps on collective punches. Baro bias settles per flight direction. Uncertainty < 1 m with GPS *(initial target)* |
 | 4.3 | Tuning test 5: hover, translate, pirouette | `POS_EST_XY` | Flow status mostly "fused" below 4 m. Position returns near the start after translations |
 
-**Send all three logs before continuing.** Estimator settings may be changed
+**Send all four logs before continuing.** Estimator settings may be changed
 after these.
 
 ---

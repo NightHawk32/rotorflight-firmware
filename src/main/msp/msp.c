@@ -1396,7 +1396,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
 #endif
 
     case MSP2_GET_POSITION_CONFIG:
-        sbufWriteU8(dst, 3);    // payload version
+        sbufWriteU8(dst, 4);    // payload version
         sbufWriteU8(dst, positionConfig()->alt_source);
         sbufWriteU8(dst, positionConfig()->xy_source);
         sbufWriteU8(dst, positionConfig()->baro_alt_lpf);
@@ -1429,6 +1429,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         sbufWriteU8(dst, 0);
         sbufWriteU8(dst, 0);
 #endif
+        sbufWriteU8(dst, positionConfig()->flow_gyro_delay);   // payload version 4
         break;
 
     case MSP2_GET_HOLD_PROFILE:
@@ -1459,7 +1460,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         positionStatus_t st;
         positionGetStatus(&st);
 
-        sbufWriteU8(dst, 3);    // payload version
+        sbufWriteU8(dst, 4);    // payload version
 
         // Estimator
         sbufWriteU16(dst, st.flags);
@@ -1533,6 +1534,11 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         // for the configurator's flow orientation check (payload version 3)
         sbufWriteU16(dst, constrain(lrintf(gyro.gyroADCf[FD_ROLL] * 10), INT16_MIN, INT16_MAX));
         sbufWriteU16(dst, constrain(lrintf(gyro.gyroADCf[FD_PITCH] * 10), INT16_MIN, INT16_MAX));
+
+        // Flow after the rotation compensation (with position_flow_gyro_delay),
+        // same units and frame as flowX/flowY (payload version 4)
+        sbufWriteU16(dst, constrain(lrintf(st.flowCompFwd), INT16_MIN, INT16_MAX));
+        sbufWriteU16(dst, constrain(lrintf(st.flowCompLeft), INT16_MIN, INT16_MAX));
         break;
     }
 
@@ -4616,7 +4622,7 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         // Sensor hardware and position_alt_source are read at boot, the
         // Kalman process noise at init / arming: the configurator reboots
         // after saving these.
-        if (sbufReadU8(src) != 3) {
+        if (sbufReadU8(src) != 4) {
             return MSP_RESULT_ERROR;
         }
         positionConfigMutable()->alt_source = sbufReadU8(src);
@@ -4652,6 +4658,7 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         sbufReadU8(src);
         sbufReadU8(src);
 #endif
+        positionConfigMutable()->flow_gyro_delay = MIN(sbufReadU8(src), 250);
         break;
 
     case MSP2_SET_HOLD_PROFILE:

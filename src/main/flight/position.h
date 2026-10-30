@@ -94,6 +94,8 @@ typedef struct positionStatus_s {
     float       posSigmaCm;
     float       flowVelEastCms;
     float       flowVelNorthCms;
+    float       flowCompFwd;        // flow after rotation compensation (cm/s at 1 m, body frame)
+    float       flowCompLeft;
     float       terrainCm;          // terrain offset state, arm frame
     float       terrainSigmaCm;
 } positionStatus_t;

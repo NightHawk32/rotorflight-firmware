@@ -1851,6 +1851,7 @@ static bool blackboxWriteSysinfo(void)
                                                                             positionConfig()->est_r_gps_vvel);
         BLACKBOX_PRINT_HEADER_LINE("position_baro_downwash_comp", "%d",     positionConfig()->baro_downwash_comp);
         BLACKBOX_PRINT_HEADER_LINE("position_flow_gyro_comp", "%d",         positionConfig()->flow_gyro_comp);
+        BLACKBOX_PRINT_HEADER_LINE("position_flow_gyro_delay", "%d",        positionConfig()->flow_gyro_delay);
 #ifdef USE_RANGEFINDER
         BLACKBOX_PRINT_HEADER_LINE("rangefinder_hardware", "%d",            rangefinderConfig()->rangefinder_hardware);
 #endif
