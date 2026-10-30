@@ -27,6 +27,7 @@
 #define AH_STATUS_SOURCE_VALID  (1 << 2)
 #define AH_STATUS_STICK         (1 << 3)
 #define AH_STATUS_YIELDED       (1 << 4)
+#define AH_STATUS_EXIT_BLEND    (1 << 5)    // switched off, blending back to the stick
 
 // Last controller cycle, for MSP (altitudes in m, output 0..1000)
 void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float *output);

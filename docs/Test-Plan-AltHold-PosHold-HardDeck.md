@@ -91,8 +91,8 @@ armed. Use a props-off setup that lets you arm.
 | 3.5 | Switch ALTHOLD on at ~1 m | Live: controllers → Altitude hold **Engaged**, source LIDAR, target latched at the current height |
 | 3.6 | Move the collective stick outside the deadband | *Collective moving target* = Yes, target changes at up to the max climb rate |
 | 3.7 | With ALTHOLD on, switch the **rescue** switch on | Altitude hold shows **Paused: rescue in control**. Collective output follows rescue, not altitude hold (this checks the priority fix). Rescue off: altitude hold re-engages with a new target |
-| 3.8 | ALTHOLD + POSHOLD on, with *Estimate valid* = Yes | Position hold **Engaged**, red cross at the current position. Move the model: roll/pitch commands point back towards the cross |
-| 3.9 | POSHOLD on with ALTHOLD off | Position hold stays **Off** |
+| 3.8 | POSHOLD on (ALTHOLD on or off), with *Estimate valid* = Yes | Position hold **Engaged**, red cross at the current position. Move the model: roll/pitch commands point back towards the cross |
+| 3.9 | POSHOLD on, *Estimate valid* = No (e.g. sensor covered) | Position hold stays **Off** |
 | 3.10 | HARD DECK on, model on the floor | State **Waiting to climb above deck** |
 | 3.11 | Disarm | All three controllers go **Off** |
 | 3.12 | Record a 30 s blackbox log with `debug_mode = POS_EST_Z` | Log header contains `althold_gain`, `poshold_gain`, `harddeck_altitude`, `position_est_r`, `pid_rate_hz` (open the log as text or in Blackbox Explorer → header) |
@@ -125,9 +125,12 @@ after these.
 | 5.4 | Climb and descend through the LIDAR range limit with ALTHOLD on | `ALTHOLD` | No collective jump when the source switches |
 | 5.5 | ALTHOLD on, then trigger rescue | `ALTHOLD` | Rescue flies normally. After rescue, altitude hold resumes at the current height |
 
-Tuning: first `althold_hover_collective` (the output settles at the hover
-value), then the gains. Known point: the inner-loop gain is weak by default,
-so expect the I term to do most of the work (see the changes doc).
+Engaging is bumpless and the collective stick is read relative to its position
+at engage, so hold the stick still when switching on. Tuning: set
+`althold_hover_collective` to the hover value (field 6 just before engaging),
+then the gains: `althold_alt_d_gain` for damping (bobbing → lower, sluggish →
+higher), `althold_alt_i_gain` for how fast it settles, `althold_alt_p_gain`
+for how firmly it returns to the target.
 
 ---
 
@@ -135,7 +138,7 @@ so expect the I term to do most of the work (see the changes doc).
 
 | # | Flight | `debug_mode` | Pass |
 | --- | --- | --- | --- |
-| 6.1 | Indoors or calm, 1–2 m, `FLOW_ONLY`: ALTHOLD + POSHOLD on, hands off 30 s | `POSHOLD` | Stays within 0.5 m *(initial target)*, no oscillation |
+| 6.1 | Indoors or calm, 1–2 m, `FLOW_ONLY`: POSHOLD on (ALTHOLD optional; without it fly the collective), hands off the cyclic 30 s | `POSHOLD` | Stays within 0.5 m *(initial target)*, no oscillation |
 | 6.2 | Push cyclic in each direction ~1 s, release | `POSHOLD` | Moves in the pushed direction, stops and holds at the new spot |
 | 6.3 | Yaw 90°, repeat one push | `POSHOLD` | Still moves in the pushed direction (stick is heading-relative) |
 | 6.4 | Outdoors with light wind, `AUTO`, 2 m | `POSHOLD` | Holds. Wind trim (fields 4/5) builds up against the wind |

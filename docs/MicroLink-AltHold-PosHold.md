@@ -21,7 +21,7 @@ MicroLink MTF-01/MTF-02 module.
 | Rangefinder | New `MICROLINK` rangefinder hardware option, sourced from the same MicroLink UART stream (shares the driver/port with the optical-flow data) |
 | Altitude Hold | New, fully implemented cascade-PID altitude-hold controller (`flight/althold.*`) that prefers LIDAR AGL altitude when available and falls back to baro/GPS altitude |
 | Position Hold | New feature (`flight/poshold.*`): a cascade-PID horizontal position-hold controller (P+I velocity loop) driven by the fused XY position/velocity estimate |
-| New flight mode | `BOXPOSHOLD` / `POSHOLD_MODE` — new arming-mode box, requires `ALTHOLD_MODE` to also be active and a valid XY position estimate |
+| New flight mode | `BOXPOSHOLD` / `POSHOLD_MODE` — new arming-mode box, works with or without `ALTHOLD_MODE` (without it the pilot keeps the collective) and requires a valid XY position estimate |
 | Position estimator | `flight/position.c` now runs Kalman filters (`flight/kalman.*`): a 4-state vertical filter (altitude, vertical velocity, baro downwash bias, terrain offset) fed by IMU, baro, GPS and rangefinder, and East/North filters fed by IMU, GPS position/velocity and gyro-compensated optical-flow velocity. Also an AGL (rangefinder) altitude estimate |
 | New task | `TASK_OPTICAL_FLOW` @ 50 Hz polls/parses the MicroLink UART stream |
 | New debug modes | `DEBUG_OPTICAL_FLOW`, `DEBUG_ALTHOLD`, `DEBUG_POSHOLD`, `DEBUG_HARDDECK`, `DEBUG_POS_EST_Z`, `DEBUG_POS_EST_XY`, `DEBUG_POS_EST_TERRAIN` |
@@ -182,12 +182,12 @@ saved/restored via `dump`/`diff`, and are visible in Configurator's CLI tab.
 
 | CLI name | Field | Default | Range | Meaning |
 | --- | --- | --- | --- | --- |
-| `althold_alt_p_gain` | `althold.alt_p_gain` | 20 | 0-1000 | P gain ×10 (2.0), used for both loops: altitude error (m) → velocity setpoint (m/s), and velocity error (m/s) → collective (out of 1000) |
-| `althold_alt_i_gain` | `althold.alt_i_gain` | 5 | 0-1000 | Velocity-loop integral gain |
-| `althold_alt_d_gain` | `althold.alt_d_gain` | 15 | 0-1000 | Damping gain applied to vario (climb rate) |
+| `althold_alt_p_gain` | `althold.alt_p_gain` | 10 | 0-1000 | Outer loop, ÷10: altitude error (m) → climb-rate command (m/s). 10 = 1.0 /s |
+| `althold_alt_i_gain` | `althold.alt_i_gain` | 5 | 0-1000 | Inner loop integral, ×10: collective per m/s of climb-rate error per second (5 = 50). Trims the hover point |
+| `althold_alt_d_gain` | `althold.alt_d_gain` | 15 | 0-1000 | Inner loop gain, ×5: collective per m/s of climb-rate error (15 = 75). Provides the damping |
 | `althold_max_climb_rate` | `althold.max_climb_rate` | 200 | 10-1000 | Max commanded climb/descent rate, cm/s |
 | `althold_stick_deadband` | `althold.stick_deadband` | 100 | 0-500 | Collective stick deadband, out of 1000 (10%) |
-| `althold_hover_collective` | `althold.hover_collective` | 350 | 0-1000 | Feed-forward hover collective, out of 1000 |
+| `althold_hover_collective` | `althold.hover_collective` | 350 | 0-1000 | Hover collective, out of 1000. Engaging is bumpless (the integrator starts from the collective being flown), so this is the fallback while the altitude is invalid; set it to the hover value from a log |
 | `poshold_pos_p_gain` | `poshold.pos_p_gain` | 50 | 0-1000 | Position error (cm) → velocity setpoint, ×100 scale (0.5 (cm/s)/cm) |
 | `poshold_vel_p_gain` | `poshold.vel_p_gain` | 30 | 0-1000 | Velocity error (cm/s) → tilt angle, ×100 scale (0.3°/(cm/s)) |
 | `poshold_vel_i_gain` | `poshold.vel_i_gain` | 10 | 0-1000 | Velocity-loop integral (wind trim), ×100 scale (0.1°/(cm/s)/s). Kept in the earth frame, so it survives yaw changes |
@@ -203,7 +203,7 @@ The `poshold_*` entries are compiled in whenever `USE_OPTICAL_FLOW` is defined
 | Box | Mode flag | Notes |
 | --- | --- | --- |
 | `ALTHOLD` (permanent id 3) | `ALTHOLD_MODE` (bit 4) | Existing box, now functional |
-| `POSHOLD` (permanent id 58) | `POSHOLD_MODE` (bit 7) | New; must be mapped to an aux switch with `aux`. Requires `ALTHOLD` to also be active in the air, plus a valid XY position estimate |
+| `POSHOLD` (permanent id 58) | `POSHOLD_MODE` (bit 7) | New; must be mapped to an aux switch with `aux`. Requires a valid XY position estimate; works with or without `ALTHOLD` |
 | `HARD DECK` (permanent id 59) | `HARDDECK_MODE` (bit 8) | New, see [HardDeck.md](HardDeck.md) |
 
 The new boxes are appended at the end of the internal box list, so existing
