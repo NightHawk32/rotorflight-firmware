@@ -1838,6 +1838,7 @@ const clivalue_t valueTable[] = {
     { "position_baro_downwash_comp", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_POSITION, offsetof(positionConfig_t, baro_downwash_comp) },
     { "position_est_q_terrain",    VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 65535 }, PG_POSITION, offsetof(positionConfig_t, est_q_terrain) },
     { "position_flow_gyro_comp",   VAR_INT16 | MASTER_VALUE, .config.minmax = { -200, 200 }, PG_POSITION, offsetof(positionConfig_t, flow_gyro_comp) },
+    { "position_flow_gyro_delay",  VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 250 }, PG_POSITION, offsetof(positionConfig_t, flow_gyro_delay) },
 
 // PG_MODE_ACTIVATION_CONFIG
 #if defined(USE_CUSTOM_BOX_NAMES)

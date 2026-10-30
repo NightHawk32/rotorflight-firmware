@@ -56,6 +56,7 @@ typedef struct positionConfig_s {
     uint8_t  baro_downwash_comp;// baro downwash compensation strength (0 = off, x10)
     uint16_t est_q_terrain;     // process noise: terrain offset random walk (cm^2 per metre flown)
     int16_t  flow_gyro_comp;    // optical flow body-rate compensation (%, 100 = full, negative = mirrored axes)
+    uint8_t  flow_gyro_delay;   // optical flow latency behind the gyro (ms), applied to the compensation
 } positionConfig_t;
 
 PG_DECLARE(positionConfig_t, positionConfig);

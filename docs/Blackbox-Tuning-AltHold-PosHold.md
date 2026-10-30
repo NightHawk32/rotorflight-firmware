@@ -76,7 +76,7 @@ Do them in this order. Each one builds on the previous one.
 
 | # | Test | `debug_mode` | What to fly |
 | --- | --- | --- | --- |
-| 1 | Flow signs (bench, props off) | `OPTICAL_FLOW` | Hold the model level ~1 m over a textured floor. Slide it **forward** 1 m, back, then **right** 1 m, back. Then, without moving it, pitch it forward/back and roll it left/right by ~20°. |
+| 1 | Flow and rotation compensation (hover) | `OPTICAL_FLOW` | Manual hover at 1–2 m over a textured surface for 30–60 s, no new modes. The normal small pitch/roll wobbles are what this test needs; a few gentle cyclic inputs help. Do the bench direction check (test plan 2.8) first. |
 | 2 | LIDAR chain | `RANGEFINDER` | Hover at 0.5, 1, 2, 4 m, each for ~10 s. Fly slowly over an edge (table, step, kerb). |
 | 3 | Altitude estimator | `POS_EST_Z` | Hover, slow climbs/descents of 5–10 m, several sharp collective punches up and down, fast cyclic (flips/rolls) if you fly them. Outdoors with a GPS fix, and once without GPS if possible. |
 | 3b | Terrain | `POS_EST_TERRAIN` | Hover 20 s over one spot at ~1.5 m, then fly slowly over a step (table, kerb, bank) and back, then a 20 m traverse over flat ground at ~2 m/s. |
@@ -110,21 +110,34 @@ Unless stated otherwise:
 | 6 | Velocity right | cm/s, last fused sample |
 | 7 | Status of latest sample | 0 fused, 1 disabled by `position_xy_source`, 2 no sensor / timeout, 3 no valid AGL, 4 quality too low, 5 tilt above 45° |
 
-Test 1 expectation: the estimator only fuses flow while **armed**, so on a
-disarmed bench fields 3-7 do not update. Use the raw fields: sliding
-**forward** must make field 0 positive, and sliding **right** must make field 1
-negative (Y points left). The configurator's Position & Hold tab shows the same
-check as an arrow. Pitching or rolling in place moves fields 0 and 1 in step
-with gyro pitch and roll: the module does not compensate for rotation, the
-estimator does (`position_flow_gyro_comp`). Check that part **armed with props
-off**: fields 5/6 (velocity after compensation) must stay near zero while
-rotating in place. If they move about as much as without compensation but with
-the opposite sign, set `position_flow_gyro_comp = -100`; if they still move
-with the same sign, the module axes do not match the body frame: fix
-`optical_flow_align`. The configurator's **Optical flow orientation** check
-(Position & Hold tab) does both measurements disarmed: two slides give the
-orientation, rocking in place gives `position_flow_gyro_comp` from the gyro
-rates in `MSP2_GET_POSITION_STATUS` (payload version 3).
+The estimator runs armed and disarmed (arming resets the position to the arm
+point), so all fields update on the bench too.
+
+**Direction.** Moving **forward** over the ground must make field 0 positive,
+moving **right** must make field 1 negative (Y points left). On the bench, use
+the configurator's **Optical flow orientation** check: slide the model, or pull
+a textured mat under the standing model in the opposite direction.
+
+**Rotation compensation.** The module does not remove rotation: pitching or
+rolling moves fields 0 and 1 by about 100 × the rate in rad/s, whatever the
+height. The estimator subtracts the gyro rate (`position_flow_gyro_comp`,
+100 % = physical value), taken `position_flow_gyro_delay` earlier because the
+module reports its samples late (MicroLink: about 50 ms, measured on the
+bench on 2026-10-30). Neither depends on the model, so there is no bench
+calibration: `tools/bbl_tune.py` fits both from the test 1 hover log. It
+high-passes flow and gyro (the hover's slow drift drops out, the fast
+attitude wobbles remain), mirrors the firmware's per-sample gyro window and
+scans the delay; it reports the best `position_flow_gyro_comp` and
+`position_flow_gyro_delay`, and how much rotation is left with the delay as
+set and with no delay. Expected: comp near 100 for both axes, rotation left
+well below 30 %.
+
+Rocking the model while it stands on the floor does **not** measure this: the
+pivot is under the sensor, which keeps looking at the same spot and sees
+almost no flow. For a bench look, rest the model on two supports or a table
+edge (ground ≥0.5 m below) and rock it there: the configurator's **Rotation
+compensation** section plots raw against compensated flow, and
+`tools/msp_flowcheck.py` records it over MSP without a radio.
 
 ### `RANGEFINDER`
 
@@ -256,6 +269,7 @@ Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
 | `position_est_r` | `position_est_r_baro_alt`, `_r_lidar_alt`, `_r_gps_pos`, `_r_gps_vel`, `_r_flow_vel`, `_r_gps_vvel` |
 | `position_baro_downwash_comp` | `position_baro_downwash_comp` |
 | `position_flow_gyro_comp` | `position_flow_gyro_comp` |
+| `position_flow_gyro_delay` | `position_flow_gyro_delay` (ms) |
 | `rangefinder_hardware`, `optical_flow_hardware` | Enum index |
 | `optical_flow_align` | Enum index (`CW0`, `CW90`, `CW180`, `CW270`, then the `FLIP` variants) |
 | `gps_provider` | Enum index (`NMEA`, `UBLOX`, `MSP`, `FBUS`, `CRSF`) |

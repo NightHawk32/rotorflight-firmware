@@ -50,4 +50,5 @@ PG_RESET_TEMPLATE(positionConfig_t, positionConfig,
     .baro_downwash_comp = 30,
     .est_q_terrain = 200,
     .flow_gyro_comp = 100,
+    .flow_gyro_delay = 50,      // MicroLink, measured on the bench
 );
