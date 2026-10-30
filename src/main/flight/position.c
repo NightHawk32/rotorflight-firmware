@@ -149,7 +149,18 @@ enum {
     FLOW_STATUS_NO_AGL,         // no valid rangefinder height to scale with
     FLOW_STATUS_LOW_QUALITY,    // quality at or below FLOW_QUALITY_MIN
     FLOW_STATUS_TILT,           // tilted beyond FLOW_MIN_COS_TILT
+    FLOW_STATUS_OUTLIER,        // rejected by the innovation gate
 };
+
+// Flow innovation gate: a sample whose velocity disagrees with the filter's
+// IMU-propagated prediction by more than FLOW_GATE_SIGMA standard deviations
+// (filter and measurement noise combined) is dropped.  After
+// FLOW_GATE_MAX_REJECTS consecutive rejections the samples are trusted again,
+// so a real change faster than the filter expects cannot lock flow out.
+// (2026-10-30: single MicroLink samples of ~2 m/s while hovering still made
+// position hold lean 13 degrees.)
+#define FLOW_GATE_SIGMA             5.0f
+#define FLOW_GATE_MAX_REJECTS       5
 
 // DEBUG_POS_EST_Z[7] flag bits (x1000, disturbance x100 in the low digits)
 #define POS_EST_Z_ANCHOR_FRESH      (1 << 0)
@@ -321,10 +332,11 @@ typedef struct {
     timeMs_t    lastFlowFuseMs;
     timeMs_t    lastFlowSampleMs;
     uint8_t     flowStatus;     // FLOW_STATUS_* of the latest sample
+    uint8_t     flowRejects;    // consecutive samples rejected by the gate
     bool        gpsFresh;       // GPS fused within XY_GPS_TIMEOUT_MS
     bool        flowFresh;      // flow fused within XY_MEASUREMENT_TIMEOUT_MS
     bool        clamped;        // dead-reckoning clamp applied this step
-    float       flowVelEast;    // last fused flow velocity (cm/s)
+    float       flowVelEast;    // latest usable flow velocity, fused or gated (cm/s)
     float       flowVelNorth;
     float       flowCompFwd;    // latest flow after rotation compensation, body frame
     float       flowCompLeft;   // (cm/s at 1 m), whether fused or not
@@ -789,6 +801,7 @@ static void estimatorResetXY(void)
     posxy.lastFlowFuseMs = 0;
     posxy.lastFlowSampleMs = 0;
     posxy.flowStatus = FLOW_STATUS_NO_SENSOR;
+    posxy.flowRejects = 0;
     posxy.flowVelEast = 0;
     posxy.flowVelNorth = 0;
     posxy.flowCompFwd = 0;
@@ -990,11 +1003,25 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             const float velEast  = velFwd * sinYaw + velRight * cosYaw;
             const float velNorth = velFwd * cosYaw - velRight * sinYaw;
 
-            kalmanUpdateVelocity(&posxy.kfEast, velEast, flowR);
-            kalmanUpdateVelocity(&posxy.kfNorth, velNorth, flowR);
+            // Innovation gate (normalised squared innovation, both axes)
+            const float innovEast  = velEast  - kalmanGetVelocity(&posxy.kfEast);
+            const float innovNorth = velNorth - kalmanGetVelocity(&posxy.kfNorth);
+            const float sEast  = posxy.kfEast.P[1][1]  + flowR;
+            const float sNorth = posxy.kfNorth.P[1][1] + flowR;
+            const float nis = sq(innovEast) / sEast + sq(innovNorth) / sNorth;
 
-            posxy.lastFlowFuseMs = nowMs;
-            posxy.flowStatus = FLOW_STATUS_FUSED;
+            if (nis > sq(FLOW_GATE_SIGMA) && posxy.flowRejects < FLOW_GATE_MAX_REJECTS) {
+                posxy.flowRejects++;
+                posxy.flowStatus = FLOW_STATUS_OUTLIER;
+            }
+            else {
+                kalmanUpdateVelocity(&posxy.kfEast, velEast, flowR);
+                kalmanUpdateVelocity(&posxy.kfNorth, velNorth, flowR);
+
+                posxy.flowRejects = 0;
+                posxy.lastFlowFuseMs = nowMs;
+                posxy.flowStatus = FLOW_STATUS_FUSED;
+            }
             posxy.flowVelEast = velEast;
             posxy.flowVelNorth = velNorth;
 
