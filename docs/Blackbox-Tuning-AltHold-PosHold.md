@@ -122,8 +122,8 @@ a textured mat under the standing model in the opposite direction.
 rolling moves fields 0 and 1 by about 100 × the rate in rad/s, whatever the
 height. The estimator subtracts the gyro rate (`position_flow_gyro_comp`,
 100 % = physical value), taken `position_flow_gyro_delay` earlier because the
-module reports its samples late (MicroLink: about 50 ms, measured on the
-bench on 2026-10-30). Neither depends on the model, so there is no bench
+module reports its samples late (MicroLink: about 40 ms, from a hover log on
+2026-10-30; the bench gave about 47 ms). Neither depends on the model, so there is no bench
 calibration: `tools/bbl_tune.py` fits both from the test 1 hover log. It
 high-passes flow and gyro (the hover's slow drift drops out, the fast
 attitude wobbles remain), mirrors the firmware's per-sample gyro window and
