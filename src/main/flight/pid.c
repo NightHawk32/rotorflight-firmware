@@ -860,8 +860,14 @@ static float pidApplySetpoint(uint8_t axis)
     float setpoint = getSetpoint(axis);
 
 #ifdef USE_ACC
-    // Apply leveling modes
-    if (FLIGHT_MODE(ANGLE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE)) {
+    // Apply leveling modes.  Position Hold commands a tilt angle, which only
+    // the angle-mode leveling turns into a rate: it levels while engaged,
+    // whatever mode the pilot flies in (without it the command was ignored).
+    if (FLIGHT_MODE(ANGLE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE)
+#ifdef USE_OPTICAL_FLOW
+        || posHoldIsActive()
+#endif
+        ) {
         setpoint = angleModeApply(axis, setpoint);
     }
     else if (FLIGHT_MODE(HORIZON_MODE)) {
