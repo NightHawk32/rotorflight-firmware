@@ -191,7 +191,7 @@ saved/restored via `dump`/`diff`, and are visible in Configurator's CLI tab.
 | `poshold_pos_p_gain` | `poshold.pos_p_gain` | 50 | 0-1000 | Position error (cm) → velocity setpoint, ×100 scale (0.5 (cm/s)/cm) |
 | `poshold_vel_p_gain` | `poshold.vel_p_gain` | 30 | 0-1000 | Velocity error (cm/s) → tilt angle, ×100 scale (0.3°/(cm/s)) |
 | `poshold_vel_i_gain` | `poshold.vel_i_gain` | 10 | 0-1000 | Velocity-loop integral (wind trim), ×100 scale (0.1°/(cm/s)/s). Kept in the earth frame, so it survives yaw changes |
-| `poshold_max_horiz_speed` | `poshold.max_horiz_speed` | 200 | 10-1000 | Max commanded horizontal speed, cm/s |
+| `poshold_max_horiz_speed` | `poshold.max_horiz_speed` | 200 | 10-1000 | Max commanded horizontal speed, cm/s. Full roll/pitch stick moves at this speed, so it sets the stick sensitivity |
 | `poshold_max_tilt_angle` | `poshold.max_tilt_angle` | 150 | 10-450 | Max tilt angle, degrees ×10 (15.0°) |
 | `poshold_stick_deadband` | `poshold.stick_deadband` | 100 | 0-500 | Roll/pitch stick deadband, out of 1000 (10%) |
 

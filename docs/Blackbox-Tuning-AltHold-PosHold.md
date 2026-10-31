@@ -224,7 +224,10 @@ target moves at up to the max climb rate.
 
 All fields read 0 while Position Hold is not engaged (mode off, ALTHOLD off, or
 no valid XY estimate). The velocity command is
-`clamp(poshold_pos_p_gain/100 × error, ±poshold_max_horiz_speed)`.
+`clamp(stick rate + poshold_pos_p_gain/100 × error, ±poshold_max_horiz_speed)`.
+The stick rate (up to `poshold_max_horiz_speed` at full stick) moves the hold
+target and is fed forward, and while the stick is deflected the target is kept
+within 50 cm of the model, so the model stops about where the stick is released.
 
 ### `POS_EST_XY` (horizontal Kalman filters, 100 Hz)
 

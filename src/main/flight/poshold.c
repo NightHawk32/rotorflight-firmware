@@ -39,6 +39,9 @@
 #include "pg/pid.h"
 
 
+// How far the stick may move the hold target ahead of the model
+#define POSHOLD_LEASH_CM        50.0f
+
 // Angle output in centidegrees (same as gpsRescueAngle[])
 int32_t posHoldAngle[2];
 
@@ -144,23 +147,38 @@ void posHoldUpdate(void)
     const float cosYaw = cos_approx(yawRad);
     const float sinYaw = sin_approx(yawRad);
 
-    if (bodyRightRate != 0.0f || bodyForwardRate != 0.0f) {
-        // Rotate body-frame (right, forward) stick rates into earth-frame
-        // (East, North) using the current heading, so the hold target moves
-        // in the direction the pilot is actually commanding regardless of yaw.
-        const float eastRate  = bodyForwardRate * sinYaw + bodyRightRate * cosYaw;
-        const float northRate = bodyForwardRate * cosYaw - bodyRightRate * sinYaw;
+    // Rotate body-frame (right, forward) stick rates into earth-frame
+    // (East, North) using the current heading, so the hold target moves
+    // in the direction the pilot is actually commanding regardless of yaw.
+    const float eastRate  = bodyForwardRate * sinYaw + bodyRightRate * cosYaw;
+    const float northRate = bodyForwardRate * cosYaw - bodyRightRate * sinYaw;
 
+    if (bodyRightRate != 0.0f || bodyForwardRate != 0.0f) {
         ph.holdX += eastRate  * pidGetDT();
         ph.holdY += northRate * pidGetDT();
+
+        // Leash: while the stick moves the target, keep it within
+        // POSHOLD_LEASH_CM of the model, so it cannot run far ahead and the
+        // model stops close to where the stick was released.  Not applied
+        // with the stick centred, where a gap is a disturbance to correct.
+        const float leadX = ph.holdX - getPositionXCm();
+        const float leadY = ph.holdY - getPositionYCm();
+        const float lead = sqrtf(sq(leadX) + sq(leadY));
+        if (lead > POSHOLD_LEASH_CM) {
+            const float scale = POSHOLD_LEASH_CM / lead;
+            ph.holdX = getPositionXCm() + leadX * scale;
+            ph.holdY = getPositionYCm() + leadY * scale;
+        }
     }
 
     // --- Outer loop: position error → velocity command ---
+    // The stick rate is fed forward, so the model follows the stick at once
+    // instead of only after the target has run 1/pos_p seconds ahead of it.
     const float posErrX = ph.holdX - getPositionXCm();
     const float posErrY = ph.holdY - getPositionYCm();
 
-    float velCmdX = constrainf(ph.Kp_pos * posErrX, -ph.maxHorizSpeed, ph.maxHorizSpeed);
-    float velCmdY = constrainf(ph.Kp_pos * posErrY, -ph.maxHorizSpeed, ph.maxHorizSpeed);
+    float velCmdX = constrainf(eastRate  + ph.Kp_pos * posErrX, -ph.maxHorizSpeed, ph.maxHorizSpeed);
+    float velCmdY = constrainf(northRate + ph.Kp_pos * posErrY, -ph.maxHorizSpeed, ph.maxHorizSpeed);
 
     // --- Inner loop: velocity error → angle command ---
     const float velErrEast  = velCmdX - getVelocityXCms();
@@ -213,7 +231,8 @@ void posHoldUpdate(void)
 
     // Everything needed to tune the loop from one blackbox log (earth frame
     // E/N, angles in centidegrees).  The velocity command is
-    // clamp(pos_p * posErr, +-max_horiz_speed) and not logged separately.
+    // clamp(stick rate + pos_p * posErr, +-max_horiz_speed) and not logged
+    // separately (the stick rate follows from the RC fields and the heading).
     DEBUG(POSHOLD, 0, lrintf(posErrX));
     DEBUG(POSHOLD, 1, lrintf(posErrY));
     DEBUG(POSHOLD, 2, lrintf(getVelocityXCms()));
