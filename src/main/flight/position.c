@@ -31,7 +31,9 @@
  *         rangefinder AGL (gated by the reliability ramp, measures
  *         altitude minus the terrain offset)
  *   XY <- GPS position/velocity vs the arm-point origin (R as above),
- *         optical flow velocity (R scaled by flow quality)
+ *         optical flow velocity (R scaled by flow quality).  With
+ *         position_xy_source = AUTO, GPS is only fused while there is no
+ *         fresh flow, and re-anchored to the estimate each time it takes over
  *
  * Every sensor is fused exactly once per sample it produces: baro, GPS,
  * rangefinder and flow all run slower than the 100Hz estimator step, and
@@ -857,8 +859,19 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     posxy.gyroPitchHist[posxy.gyroHistIdx] = pitchRate;
 
 #ifdef USE_GPS
+    // In AUTO, GPS only stands in while there is no fresh flow.  A small
+    // GPS is far noisier than flow at a hover: replaying a Stratos 200 log
+    // with its CRSF GPS fused (9 satellites, 2.4 Hz) moved the held position
+    // by 1-2 m std, against 18 cm on flow alone.  Dropping the origin while
+    // flow is in use re-anchors GPS to the estimate when it takes over, so
+    // the position does not jump by the flow drift and the GPS error.
+    const bool gpsStandby = xySource == XY_SOURCE_AUTO && posxy.flowFresh;
+    if (gpsStandby) {
+        posxy.originSet = false;
+    }
+
     // --- GPS position/velocity: fused once per new GPS message ---
-    if (xySource != XY_SOURCE_FLOW_ONLY && gpsIsUsable() &&
+    if (xySource != XY_SOURCE_FLOW_ONLY && !gpsStandby && gpsIsUsable() &&
         gpsData.lastMessage != posxy.lastGpsStampMs)
     {
         posxy.lastGpsStampMs = gpsData.lastMessage;

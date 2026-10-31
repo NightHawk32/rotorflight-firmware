@@ -168,7 +168,7 @@ Fly these only after phases 5–7 pass.
 
 | # | Case | Pass |
 | --- | --- | --- |
-| 8.1 | GPS fix lost with POSHOLD on in `AUTO` over textured ground | Continues on flow, no jump |
+| 8.1 | POSHOLD on in `AUTO` with a GPS fix, climb above LIDAR range and descend again | GPS takes over above range and flow below it, without a jump at either change (`POS_EST_XY` field 7: GPS fresh / flow fresh) |
 | 8.2 | Radio failsafe with ALTHOLD/POSHOLD on | Normal failsafe behaviour; altitude hold shows paused |
 | 8.3 | Arm/disarm several times in one power cycle | Each flight starts with the arm point as origin: position near 0, altitude near 0 |
 | 8.4 | Battery swap without reboot, fly again | Same as 8.3 |

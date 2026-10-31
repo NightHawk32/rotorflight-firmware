@@ -383,8 +383,12 @@ static void gpsPollCrsfSensors(void)
             gpsSol.velNEValid = false;
             GPS_velDownValid = false;
 
+            // The module reports its satellites before it has a position: a
+            // Stratos 200 log showed 9 satellites at 0,0 for 6 s after power-up
+            const bool havePosition = frame.latitude != 0 || frame.longitude != 0;
+
             gpsData.lastMessage = millis();
-            gpsSetFixState(frame.satellites >= GPS_CRSF_MIN_SATS_FOR_FIX);
+            gpsSetFixState(havePosition && frame.satellites >= GPS_CRSF_MIN_SATS_FOR_FIX);
             GPS_update |= GPS_MSP_UPDATE;
         }
     }

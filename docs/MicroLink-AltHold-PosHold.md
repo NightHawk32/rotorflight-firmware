@@ -99,10 +99,14 @@ flowchart TD
   altitude, then rotates it by heading into East/North. A valid LIDAR reading
   is therefore required for optical flow to be fused. Flow is not fused at
   more than 45° of tilt or with a quality of 50/255 or less.
-* The horizontal estimate fuses **GPS and optical flow** (`position_xy_source`,
-  default `AUTO`). With GPS, the position is anchored to the first fix after
-  arming. With flow only, it is dead-reckoned and clamped to 10 m from the
-  arm point.
+* The horizontal estimate uses **optical flow and GPS** (`position_xy_source`,
+  default `AUTO`). In `AUTO`, flow is used while it is healthy and GPS takes
+  over when it is not (above LIDAR range, poor texture). Each time GPS takes
+  over it is anchored to the current estimate, so the position does not
+  jump. A small GPS is far noisier than flow at a hover (1–2 m against
+  about 20 cm), so the two are not mixed. Without GPS the position is
+  dead-reckoned and clamped to 10 m from the arm point. A CRSF GPS position
+  of 0,0 (sent before the module has a fix) is not a fix.
 * Altitude Hold (`althold.c`) prefers the LIDAR AGL altitude
   (`isAGLAltitudeValid()`) and falls back to the existing baro/GPS blended
   altitude (`getAltitude()`) when the rangefinder is out of range or unreliable.
@@ -128,7 +132,7 @@ flowchart TD
 | `rangefinder_hardware` | `NONE`, `HCSR04`, `TFMINI`, `TF02`, **`MICROLINK`** (new) | Select `MICROLINK` to source LIDAR altitude from the MicroLink UART |
 | `optical_flow_hardware` | `NONE`, **`MICROLINK`** (new parameter/table) | Default is `MICROLINK`. New `PG_OPTICAL_FLOW_CONFIG` parameter group |
 | `position_alt_source` | `DEFAULT`, `BARO_ONLY`, `GPS_ONLY`, **`LIDAR_ONLY`** (new) | When `LIDAR_ONLY` is selected, the general altitude/vario estimate (`getAltitude()`/`getEstimatedAltitudeCm()`, used by OSD/blackbox/telemetry) is sourced from the rangefinder AGL estimate, and the rangefinder is fused into the Kalman filter with 4× lower noise |
-| `position_xy_source` (new) | `AUTO`, `GPS_ONLY`, `FLOW_ONLY` | Which sensors feed the horizontal estimate. Default `AUTO` fuses both |
+| `position_xy_source` (new) | `AUTO`, `GPS_ONLY`, `FLOW_ONLY` | Which sensors feed the horizontal estimate. Default `AUTO`: flow while it is healthy, else GPS |
 
 ### 3.1a Estimator tuning (master values, new)
 
@@ -437,9 +441,9 @@ since been fixed in the source:
   be reported as "detected" and will only be caught later, at runtime, via
   `opticalFlowIsHealthy()` (500 ms response timeout).
 - **Flow-only position drifts.** Without GPS, the XY position integrates
-  optical-flow velocity, so its error accumulates over time. GPS fusion
-  (`position_xy_source = AUTO` or `GPS_ONLY`) removes this when a fix is
-  available. There is no magnetometer fusion in the estimator, so heading
+  optical-flow velocity, so its error accumulates over time. `GPS_ONLY`
+  removes this when a fix is available; `AUTO` only bounds it while flow is
+  unavailable. There is no magnetometer fusion in the estimator, so heading
   drift rotates the flow velocity.
 - **Position estimate silently resets/clamps.** While no GPS fix is being
   fused, the position is clamped to a 1000 cm radius from the arm-time origin

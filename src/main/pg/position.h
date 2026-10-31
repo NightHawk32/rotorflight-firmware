@@ -28,7 +28,7 @@ enum {
 };
 
 enum {
-    XY_SOURCE_AUTO = 0,     // fuse GPS and optical flow, whichever is healthy
+    XY_SOURCE_AUTO = 0,     // optical flow while it is healthy, else GPS
     XY_SOURCE_GPS_ONLY,
     XY_SOURCE_FLOW_ONLY,
 };
