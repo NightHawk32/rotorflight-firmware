@@ -79,6 +79,9 @@ typedef enum {
 
 #define GPS_BAUDRATE_MAX GPS_BAUDRATE_9600
 
+#define GPS_UPDATE_RATE_HZ_MIN  1
+#define GPS_UPDATE_RATE_HZ_MAX  20
+
 typedef struct {
     uint8_t     provider;
     uint8_t     sbasMode;
@@ -89,6 +92,7 @@ typedef struct {
     uint8_t     gps_set_home_point_once;
     uint8_t     gps_use_3d_speed;
     uint8_t     sbas_integrity;
+    uint8_t     gps_update_rate_hz;     // u-blox navigation rate
 } gpsConfig_t;
 
 PG_DECLARE(gpsConfig_t, gpsConfig);

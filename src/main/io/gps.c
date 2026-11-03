@@ -764,7 +764,12 @@ void gpsInitUblox(void)
                         }
                         break;
                     case 12:
-                        ubloxSetNavRate(0xC8, 1, 1); // set rate to 5Hz (measurement period: 200ms, navigation rate: 1 cycle)
+                        {
+                            // measurement period from gps_update_rate_hz (10 Hz: 100 ms), one
+                            // navigation solution per measurement, aligned to GPS time
+                            const uint8_t rateHz = constrain(gpsConfig()->gps_update_rate_hz, GPS_UPDATE_RATE_HZ_MIN, GPS_UPDATE_RATE_HZ_MAX);
+                            ubloxSetNavRate(1000 / rateHz, 1, 1);
+                        }
                         break;
                     case 13:
                         ubloxSetSbas();
