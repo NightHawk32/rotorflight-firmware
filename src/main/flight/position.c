@@ -31,9 +31,12 @@
  *         rangefinder AGL (gated by the reliability ramp, measures
  *         altitude minus the terrain offset)
  *   XY <- GPS position/velocity vs the arm-point origin (R as above),
- *         optical flow velocity (R scaled by flow quality).  With
- *         position_xy_source = AUTO, GPS is only fused while there is no
- *         fresh flow, and re-anchored to the estimate each time it takes over
+ *         optical flow velocity (R scaled by flow quality and by height
+ *         squared above FLOW_R_REF_HEIGHT_M).  With position_xy_source =
+ *         AUTO, GPS position is only fused while there is no fresh flow, and
+ *         re-anchored to the estimate each time it takes over; a GPS that
+ *         reports its speed accuracy (u-blox) has its velocity fused
+ *         alongside the flow, so it takes over smoothly with height
  *
  * Every sensor is fused exactly once per sample it produces: baro, GPS,
  * rangefinder and flow all run slower than the 100Hz estimator step, and
@@ -141,6 +144,12 @@
 // Beyond ~45 deg of tilt the flat-ground flow geometry (and the 1/cos^2 scale
 // factor) stops being trustworthy, so no flow sample is fused at all
 #define FLOW_MIN_COS_TILT           0.707f
+// Flow velocity is the angular flow times the height, so its noise grows
+// with height while position_est_r_flow_vel is tuned near the ground.  Above
+// this height R grows with the square of the height (2026-11-05: position
+// hold wobble went from 0.5 deg below 1 m to 3-4 deg at 4-7 m on flow, and
+// was 0.4-0.5 deg on a u-blox GPS alone)
+#define FLOW_R_REF_HEIGHT_M         2.0f
 
 // Outcome of the latest optical-flow sample (DEBUG_OPTICAL_FLOW[7] and
 // DEBUG_POS_EST_XY[7] bits 8+): why a sample was or was not fused
@@ -176,6 +185,7 @@ enum {
 #define POS_EST_XY_FLOW_FRESH       (1 << 2)
 #define POS_EST_XY_CLAMPED          (1 << 3)
 #define POS_EST_XY_GPS_ORIGIN       (1 << 4)
+#define POS_EST_XY_GPS_VEL_ONLY     (1 << 5)   // AUTO: GPS velocity fused alongside flow
 // Maximum dead-reckoning radius (cm) while no absolute (GPS) anchor is active
 #define POSXY_MAX_DEADRECKONING_CM  1000.0f
 
@@ -352,7 +362,8 @@ typedef struct {
     uint8_t     gyroHistIdx;
 
 #ifdef USE_GPS
-    timeMs_t    lastGpsFuseMs;
+    timeMs_t    lastGpsFuseMs;  // GPS position fused (anchors the estimate)
+    timeMs_t    lastGpsVelFuseMs; // GPS velocity only, alongside flow
     uint32_t    lastGpsStampMs;
     int32_t     originLat;      // 1e-7 deg
     int32_t     originLon;      // 1e-7 deg
@@ -815,6 +826,7 @@ static void estimatorResetXY(void)
     posxy.valid = false;
 #ifdef USE_GPS
     posxy.lastGpsFuseMs = 0;
+    posxy.lastGpsVelFuseMs = 0;
     posxy.lastGpsStampMs = 0;
     posxy.originSet = false;
 #endif
@@ -865,36 +877,44 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     // by 1-2 m std, against 18 cm on flow alone.  Dropping the origin while
     // flow is in use re-anchors GPS to the estimate when it takes over, so
     // the position does not jump by the flow drift and the GPS error.
+    //
+    // A GPS that reports its speed accuracy (u-blox Doppler velocity) still
+    // has its velocity fused while on standby: weighted by that accuracy
+    // against the height-scaled flow noise, it takes over smoothly as the
+    // flow gets worse with height, without moving the held position.
     const bool gpsStandby = xySource == XY_SOURCE_AUTO && posxy.flowFresh;
     if (gpsStandby) {
         posxy.originSet = false;
     }
+    const bool gpsVelOnly = gpsStandby && gpsSol.velNEValid && gpsSol.sAcc > 0;
 
     // --- GPS position/velocity: fused once per new GPS message ---
-    if (xySource != XY_SOURCE_FLOW_ONLY && !gpsStandby && gpsIsUsable() &&
+    if (xySource != XY_SOURCE_FLOW_ONLY && (!gpsStandby || gpsVelOnly) && gpsIsUsable() &&
         gpsData.lastMessage != posxy.lastGpsStampMs)
     {
         posxy.lastGpsStampMs = gpsData.lastMessage;
 
-        if (!posxy.originSet) {
-            // Anchor the local frame so that this fix maps onto the current
-            // filter position: the state (flow dead-reckoned since arming)
-            // stays continuous whether the first fix arrives before or
-            // after the model has moved.
-            posxy.lonScale = cos_approx(DEGREES_TO_RADIANS(gpsSol.llh.lat * 1e-7f));
-            posxy.originLat = gpsSol.llh.lat -
-                lrintf(kalmanGetPosition(&posxy.kfNorth) / EARTH_CM_PER_DEG7);
-            posxy.originLon = gpsSol.llh.lon -
-                lrintf(kalmanGetPosition(&posxy.kfEast) / (EARTH_CM_PER_DEG7 * posxy.lonScale));
-            posxy.originSet = true;
+        if (!gpsVelOnly) {
+            if (!posxy.originSet) {
+                // Anchor the local frame so that this fix maps onto the current
+                // filter position: the state (flow dead-reckoned since arming)
+                // stays continuous whether the first fix arrives before or
+                // after the model has moved.
+                posxy.lonScale = cos_approx(DEGREES_TO_RADIANS(gpsSol.llh.lat * 1e-7f));
+                posxy.originLat = gpsSol.llh.lat -
+                    lrintf(kalmanGetPosition(&posxy.kfNorth) / EARTH_CM_PER_DEG7);
+                posxy.originLon = gpsSol.llh.lon -
+                    lrintf(kalmanGetPosition(&posxy.kfEast) / (EARTH_CM_PER_DEG7 * posxy.lonScale));
+                posxy.originSet = true;
+            }
+
+            const float north = (gpsSol.llh.lat - posxy.originLat) * EARTH_CM_PER_DEG7;
+            const float east  = (gpsSol.llh.lon - posxy.originLon) * EARTH_CM_PER_DEG7 * posxy.lonScale;
+
+            const float rPos = gpsMeasurementR(positionConfig()->est_r_gps_pos, gpsSol.hdop, gpsSol.hAcc, GPS_ASSUMED_HACC_CM);
+            kalmanUpdatePosition(&posxy.kfEast, east, rPos);
+            kalmanUpdatePosition(&posxy.kfNorth, north, rPos);
         }
-
-        const float north = (gpsSol.llh.lat - posxy.originLat) * EARTH_CM_PER_DEG7;
-        const float east  = (gpsSol.llh.lon - posxy.originLon) * EARTH_CM_PER_DEG7 * posxy.lonScale;
-
-        const float rPos = gpsMeasurementR(positionConfig()->est_r_gps_pos, gpsSol.hdop, gpsSol.hAcc, GPS_ASSUMED_HACC_CM);
-        kalmanUpdatePosition(&posxy.kfEast, east, rPos);
-        kalmanUpdatePosition(&posxy.kfNorth, north, rPos);
 
         // Doppler North/East velocity straight from the receiver when it
         // reports it (u-blox); ground course is undefined at hover speeds,
@@ -915,7 +935,13 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
         kalmanUpdateVelocity(&posxy.kfEast, velEast, rVel);
         kalmanUpdateVelocity(&posxy.kfNorth, velNorth, rVel);
 
-        posxy.lastGpsFuseMs = nowMs;
+        // Only a position fix anchors the estimate (gpsFresh)
+        if (gpsVelOnly) {
+            posxy.lastGpsVelFuseMs = nowMs;
+        }
+        else {
+            posxy.lastGpsFuseMs = nowMs;
+        }
     }
 #endif
 
@@ -982,7 +1008,6 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             const float qualityNorm = constrainf(
                 (float)(quality - FLOW_QUALITY_MIN) / (255.0f - FLOW_QUALITY_MIN),
                 0.01f, 1.0f);
-            const float flowR = positionConfig()->est_r_flow_vel / qualityNorm;
 
             // Flow -> ground velocity.
             //
@@ -1001,6 +1026,10 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             // the velocity estimate.
             const float heightM = getAGLAltitude();
             const float flowScale = heightM / (cosTilt * cosTilt);
+
+            // The velocity noise grows with the height the flow is scaled by
+            const float heightNorm = fmaxf(heightM / FLOW_R_REF_HEIGHT_M, 1.0f);
+            const float flowR = positionConfig()->est_r_flow_vel * sq(heightNorm) / qualityNorm;
 
             // Body frame is x-forward, y-left (FLU, matching rMat's NWU
             // convention); the sensor must be mounted/configured
@@ -1111,6 +1140,9 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
 #ifdef USE_GPS
     if (posxy.originSet) {
         xyFlags |= POS_EST_XY_GPS_ORIGIN;
+    }
+    if (posxy.lastGpsVelFuseMs != 0 && (nowMs - posxy.lastGpsVelFuseMs) < XY_GPS_TIMEOUT_MS) {
+        xyFlags |= POS_EST_XY_GPS_VEL_ONLY;
     }
 #endif
 
