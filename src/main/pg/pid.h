@@ -109,6 +109,7 @@ typedef struct {
     uint16_t    max_climb_rate;     // Max climb/descent rate cm/s (e.g., 200)
     uint16_t    stick_deadband;     // Collective stick deadband 0-500 (out of 1000)
     uint16_t    hover_collective;   // Feed-forward hover collective (0-1000)
+    uint16_t    exit_time;          // Hold collective fades into the stick over this, ds
 } pidAltHoldConfig_t;
 
 typedef struct {

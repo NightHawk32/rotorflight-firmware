@@ -1814,9 +1814,10 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE("althold_gain", "%d,%d,%d",              currentPidProfile->althold.alt_p_gain,
                                                                             currentPidProfile->althold.alt_i_gain,
                                                                             currentPidProfile->althold.alt_d_gain);
-        BLACKBOX_PRINT_HEADER_LINE("althold_limits", "%d,%d,%d",            currentPidProfile->althold.max_climb_rate,
+        BLACKBOX_PRINT_HEADER_LINE("althold_limits", "%d,%d,%d,%d",         currentPidProfile->althold.max_climb_rate,
                                                                             currentPidProfile->althold.stick_deadband,
-                                                                            currentPidProfile->althold.hover_collective);
+                                                                            currentPidProfile->althold.hover_collective,
+                                                                            currentPidProfile->althold.exit_time);
         BLACKBOX_PRINT_HEADER_LINE("poshold_gain", "%d,%d,%d",              currentPidProfile->poshold.pos_p_gain,
                                                                             currentPidProfile->poshold.vel_p_gain,
                                                                             currentPidProfile->poshold.vel_i_gain);

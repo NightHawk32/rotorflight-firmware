@@ -21,13 +21,23 @@
  * Architecture (cascade PID inspired by INAV navigation_multicopter.c):
  *
  *   Pilot stick (collective), relative to where it was when the hold engaged
- *        │  outside deadband: move target at rate ∝ deflection
+ *        │  outside deadband: climb rate ∝ deflection² (fed forward, and
+ *        │                    moves the target, leashed to the model)
  *        │  inside  deadband: hold current target
  *        ▼
- *   targetAlt ──[alt_p]──> velCmd ──[vel gain + I]──> collOutput
- *                              │                          │
- *                         clamped to                 applies tilt
- *                       maxClimbRate                compensation
+ *   stickRate + [alt_p] x (targetAlt - alt) ──> velCmd ──[vel gain + I]──> collOutput
+ *                                                  │                          │
+ *                                             clamped to                 applies tilt
+ *                                           maxClimbRate                compensation
+ *
+ * The stick is read symmetrically around the engage point: the deadband is
+ * althold_stick_deadband of the half stick throw in both directions, and the
+ * full climb or descent rate is reached at the same distance up or down (the
+ * shorter side's travel to the stick end).  The rate follows a squared curve
+ * so that small deflections give slow, fine height changes.  The target may
+ * lead the model by at most AH_LEASH_M, and on stick release it is latched
+ * near the point where the model will stop, so the hold does not run on and
+ * pull back.
  *
  * Gains (per PID profile):
  *   althold_alt_p_gain / 10        altitude error (m) -> climb rate (m/s)
@@ -37,11 +47,14 @@
  *
  * Engaging is bumpless: the integrator starts at the collective the pilot
  * (or rescue) was flying with, so althold_hover_collective only matters as
- * the fallback while the altitude is invalid.  Switching the mode off blends
- * from the hold's collective back to the stick over AH_EXIT_BLEND_S: the
- * stick is usually not at the hover point then (the first flight dropped
- * 85 cm in 0.6 s when the hold was switched off with the stick in the
- * descend position).  Rescue and failsafe take over at once.
+ * the fallback while the altitude is invalid.  When the pilot switches the
+ * mode off, the stick is usually not at the hold's collective (on
+ * 2026-10-30 the difference was -163 and +58, and the model dropped 82 cm
+ * and rose 41 cm).  The output is then the stick plus that difference, and
+ * the difference fades to zero over althold_exit_time: the stick has full,
+ * direct authority at once, and only the hover point moves, slowly.  If the
+ * stick crosses the hold's collective, the difference is dropped at once
+ * (the pilot has caught it).  Rescue and failsafe take over at once.
  *
  * The output overrides the normal collective setpoint only when
  * ALTHOLD_MODE is active and no rescue is in control of the collective.
@@ -85,22 +98,29 @@ typedef struct {
     bool        usingAgl;       // which frame targetAlt is expressed in
     bool        stickActive;    // collective outside the deadband this cycle
     float       stickRef;       // collective stick (-1..1) when the hold engaged
+    float       stickSpan;      // stick distance from stickRef for the full rate
+    float       stickRate;      // climb rate commanded by the stick, m/s
     bool        bumpless;       // preload the integrator on the next output
 
     // Last cycle, for altHoldGetStatus()
     uint8_t     statusFlags;
     float       statusOutput;
 
-    // Smooth exit: output blends from exitFrom to the stick while
-    // exitBlend runs from 1 to 0
-    float       exitFrom;
-    float       exitBlend;
+    // Smooth exit: output = stick + exitOffset x exitFade, exitFade runs
+    // from 1 to 0 over exitTime
+    float       exitTime;       // s, 0 = hand back at once
+    float       exitFrom;       // last output (hold, or stick during the fade)
+    float       exitHold;       // hold collective when the mode was switched off
+    float       exitOffset;     // exitHold - stick collective at that moment
+    float       exitFade;
+    bool        exitArmed;      // hold engaged last cycle: capture the offset
     bool        active;         // was mode active last cycle (for init)
 } altHoldState_t;
 
 static FAST_DATA_ZERO_INIT altHoldState_t ah;
 
-#define AH_EXIT_BLEND_S         1.0f    // stick takeover after switching off
+#define AH_LEASH_M              0.30f   // max target lead while the stick moves it
+#define AH_STOP_LEAD            0.5f    // release target: alt + this x vario / alt_p
 
 
 /*
@@ -168,6 +188,7 @@ void altHoldUpdate(void)
         ah.active = false;
         ah.velIterm = 0;
         ah.stickActive = false;
+        ah.stickRate = 0;
         return;
     }
 
@@ -186,6 +207,9 @@ void altHoldUpdate(void)
         ah.usingAgl = usingAgl;
         ah.lastAlt = currentAlt;
         ah.stickRef = constrainf(stick, -0.9f, 0.9f);
+        ah.stickSpan = fmaxf(1.0f - fabsf(ah.stickRef), ah.stickDeadband + 0.1f);
+        ah.stickRate = 0;
+        ah.stickActive = false;
         ah.bumpless = true;
         ah.active = true;
     }
@@ -203,25 +227,40 @@ void altHoldUpdate(void)
     if (!altSourceIsValid()) {
         // No usable altitude: freeze the target rather than integrating the
         // stick into a target the loop cannot track.
+        ah.stickActive = false;
+        ah.stickRate = 0;
         return;
     }
 
-    // Stick travel from the engage point, -1..1: full up or down from there
-    // commands the full climb or descent rate
-    const float travel = (stick >= ah.stickRef) ?
-        (stick - ah.stickRef) / (1.0f - ah.stickRef) :
-        (stick - ah.stickRef) / (1.0f + ah.stickRef);
+    // Stick distance from the engage point, the same in both directions
+    const float delta = stick - ah.stickRef;
+    const bool wasActive = ah.stickActive;
 
-    ah.stickActive = fabsf(travel) > ah.stickDeadband;
+    ah.stickActive = fabsf(delta) > ah.stickDeadband;
 
     if (ah.stickActive) {
-        // Outside deadband: pilot is commanding a climb/descent rate
-        const float sign = (travel > 0) ? 1.0f : -1.0f;
-        const float rate = (fabsf(travel) - ah.stickDeadband) /
-                           (1.0f - ah.stickDeadband);
-        ah.targetAlt += sign * rate * ah.maxClimbRate * pidGetDT();
+        // Outside deadband: pilot is commanding a climb/descent rate,
+        // squared so that small deflections are fine
+        const float sign = (delta > 0) ? 1.0f : -1.0f;
+        const float frac = constrainf((fabsf(delta) - ah.stickDeadband) /
+                                      (ah.stickSpan - ah.stickDeadband), 0.0f, 1.0f);
+        ah.stickRate = sign * frac * frac * ah.maxClimbRate;
+        ah.targetAlt += ah.stickRate * pidGetDT();
+
+        // Leash: the climb rate is fed forward, so the target only carries
+        // the tracking error; keep it close to the model so it cannot run
+        // ahead and make the model overshoot after release
+        ah.targetAlt = constrainf(ah.targetAlt, currentAlt - AH_LEASH_M, currentAlt + AH_LEASH_M);
     }
-    // Inside deadband: targetAlt stays frozen
+    else {
+        ah.stickRate = 0;
+        if (wasActive) {
+            // Released: latch the target near where the model will stop
+            const float lead = (ah.Kp_alt > 0) ? AH_STOP_LEAD * getCurrentVario() / ah.Kp_alt : 0;
+            ah.targetAlt = currentAlt + constrainf(lead, -AH_LEASH_M, AH_LEASH_M);
+        }
+        // Inside deadband: targetAlt stays frozen
+    }
 }
 
 /*
@@ -271,13 +310,30 @@ float altHoldApply(float collective)
         if (FLIGHT_MODE(ALTHOLD_MODE)) {
             // A rescue or failsafe is in control: it takes over at once
             flags |= AH_FLAG_YIELDED;
-            ah.exitBlend = 0;
+            ah.exitArmed = false;
+            ah.exitFade = 0;
         }
-        else if (ah.exitBlend > 0) {
-            // Switched off by the pilot: hand the collective back gradually
-            output = collective + (ah.exitFrom - collective) * ah.exitBlend;
-            ah.exitBlend = fmaxf(ah.exitBlend - pidGetDT() / AH_EXIT_BLEND_S, 0.0f);
-            flags |= AH_FLAG_EXIT_BLEND;
+        else {
+            if (ah.exitArmed) {
+                // Switched off by the pilot: keep the hold's collective as
+                // an offset on the stick and fade it out
+                ah.exitArmed = false;
+                ah.exitHold = ah.exitFrom;
+                ah.exitOffset = ah.exitFrom - collective;
+                ah.exitFade = (ah.exitTime > 0) ? 1.0f : 0.0f;
+            }
+            if (ah.exitFade > 0) {
+                if ((ah.exitOffset > 0 && collective >= ah.exitHold) ||
+                    (ah.exitOffset < 0 && collective <= ah.exitHold)) {
+                    // The stick crossed the hold's collective: the pilot has it
+                    ah.exitFade = 0;
+                }
+                else {
+                    output = collective + ah.exitOffset * ah.exitFade;
+                    ah.exitFade = fmaxf(ah.exitFade - pidGetDT() / ah.exitTime, 0.0f);
+                    flags |= AH_FLAG_EXIT_BLEND;
+                }
+            }
         }
 
         // Re-engaging during the blend continues from this output
@@ -304,7 +360,8 @@ float altHoldApply(float collective)
     }
 
     // Arm the smooth exit for when the mode is switched off
-    ah.exitBlend = 1.0f;
+    ah.exitArmed = true;
+    ah.exitFade = 0;
 
     if (!altSourceIsValid()) {
         // Hold the last trimmed hover point; do not close the loop on a
@@ -320,7 +377,7 @@ float altHoldApply(float collective)
 
     // Outer loop: altitude error → velocity setpoint
     const float altError = ah.targetAlt - currentAlt;
-    const float velCmd   = constrainf(ah.Kp_alt * altError,
+    const float velCmd   = constrainf(ah.stickRate + ah.Kp_alt * altError,
                                       -ah.maxClimbRate, ah.maxClimbRate);
 
     // Inner loop: velocity error → collective
@@ -361,12 +418,18 @@ void INIT_CODE altHoldInitProfile(const pidProfile_t *pidProfile)
     ah.maxClimbRate  = cfg->max_climb_rate / 100.0f; // cm/s to m/s
     ah.stickDeadband = cfg->stick_deadband / 1000.0f;
     ah.hoverCollective = cfg->hover_collective;
+    ah.exitTime      = cfg->exit_time / 10.0f;           // ds to s
 
     ah.active   = false;
     ah.velIterm = 0;
     ah.bumpless = false;
     ah.stickRef = 0;
-    ah.exitBlend = 0;
+    ah.stickSpan = 1.0f;
+    ah.stickRate = 0;
+    ah.stickActive = false;
+    ah.exitArmed = false;
+    ah.exitFade = 0;
+    ah.exitOffset = 0;
     ah.targetAlt = 0;
     ah.lastAlt = 0;
     ah.usingAgl = false;

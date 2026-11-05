@@ -190,8 +190,9 @@ saved/restored via `dump`/`diff`, and are visible in Configurator's CLI tab.
 | `althold_alt_i_gain` | `althold.alt_i_gain` | 5 | 0-1000 | Inner loop integral, ×10: collective per m/s of climb-rate error per second (5 = 50). Trims the hover point |
 | `althold_alt_d_gain` | `althold.alt_d_gain` | 15 | 0-1000 | Inner loop gain, ×5: collective per m/s of climb-rate error (15 = 75). Provides the damping |
 | `althold_max_climb_rate` | `althold.max_climb_rate` | 200 | 10-1000 | Max commanded climb/descent rate, cm/s |
-| `althold_stick_deadband` | `althold.stick_deadband` | 100 | 0-500 | Collective stick deadband, out of 1000 (10%) |
+| `althold_stick_deadband` | `althold.stick_deadband` | 100 | 0-500 | Collective stick deadband around the stick position at engage, out of 1000 of the half throw (10%), the same up and down |
 | `althold_hover_collective` | `althold.hover_collective` | 350 | 0-1000 | Hover collective, out of 1000. Engaging is bumpless (the integrator starts from the collective being flown), so this is the fallback while the altitude is invalid; set it to the hover value from a log |
+| `althold_exit_time` | `althold.exit_time` | 30 | 0-100 | Switch-off fade, ds: the difference between the hold's collective and the stick fades out over this time (0 = hand back at once). CLI only, not in the configurator |
 | `poshold_pos_p_gain` | `poshold.pos_p_gain` | 50 | 0-1000 | Position error (cm) → velocity setpoint, ×100 scale (0.5 (cm/s)/cm) |
 | `poshold_vel_p_gain` | `poshold.vel_p_gain` | 30 | 0-1000 | Velocity error (cm/s) → tilt angle, ×100 scale (0.3°/(cm/s)) |
 | `poshold_vel_i_gain` | `poshold.vel_i_gain` | 10 | 0-1000 | Velocity-loop integral (wind trim), ×100 scale (0.1°/(cm/s)/s). Kept in the earth frame, so it survives yaw changes |

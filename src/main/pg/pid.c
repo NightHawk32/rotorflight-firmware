@@ -38,7 +38,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
     .filter_process_denom = FILTER_PROCESS_DENOM_DEFAULT,
 );
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 2);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 3);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -135,6 +135,7 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .althold.max_climb_rate = 200,  // 200 cm/s max climb/descent
         .althold.stick_deadband = 100,  // 10% deadband on collective stick
         .althold.hover_collective = 350, // fallback while the altitude is invalid (engaging is bumpless)
+        .althold.exit_time = 30,        // 3 s fade from the hold collective to the stick on switch-off
         // Position hold defaults
         .poshold.pos_p_gain = 50,       // position → velocity (0.5 m/s per m error)
         .poshold.vel_p_gain = 30,       // velocity → angle  (0.3 deg per cm/s error)

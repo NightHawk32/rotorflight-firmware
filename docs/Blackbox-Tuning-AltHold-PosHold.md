@@ -196,18 +196,23 @@ if field 4 wanders on flat ground, lower it.
 | 4 | I term ×10 | Same units. Starts at (pilot collective − `althold_hover_collective`) on engage |
 | 5 | Velocity command | cm/s |
 | 6 | Output collective | 0–1000. When not engaged: the pass-through collective |
-| 7 | Flags | 1 engaged, 2 using AGL, 4 altitude source valid, 8 pilot moving target with the stick, 16 mode on but yielding to rescue/failsafe, 32 switched off and blending back to the stick (1 s) |
+| 7 | Flags | 1 engaged, 2 using AGL, 4 altitude source valid, 8 pilot moving target with the stick, 16 mode on but yielding to rescue/failsafe, 32 switched off, hold collective fading into the stick (`althold_exit_time`) |
 
 The output is `(althold_hover_collective + climb-rate term + I) × cos²(tilt)`,
 clamped to 0–1000. The velocity command is
-`clamp(althold_alt_p_gain/10 × (target − current), ±althold_max_climb_rate)`.
+`clamp(stick climb rate + althold_alt_p_gain/10 × (target − current), ±althold_max_climb_rate)`.
 Engaging is bumpless: the I term starts so that the output equals the collective
-the model was flying with. Switching off blends from the hold's collective back
-to the stick over 1 s (field 6 shows the blend); a rescue or failsafe takes over
-at once. Still, put the stick back near where it was at engage before switching
-off. The collective stick is read relative to its position
-at engage: within the deadband of that point the target holds, beyond it the
-target moves at up to the max climb rate.
+the model was flying with. When the hold is switched off, the output becomes the stick plus the
+difference between hold and stick collective at that moment, and the difference
+fades out over `althold_exit_time` (field 6 shows it). The stick has full
+authority at once; moving it through the hold's collective drops the difference
+at once. A rescue or failsafe takes over at once. The collective stick is read
+relative to its position at engage, the same in both directions: within
+`althold_stick_deadband` of that point the target holds; beyond it the climb
+rate rises with the square of the extra deflection and reaches
+`althold_max_climb_rate` at the shorter side's distance to the stick end. The
+stick climb rate is fed forward, the target is leashed to 30 cm from the model,
+and on release it is latched near where the model will stop.
 
 ### `POSHOLD`
 
@@ -261,7 +266,7 @@ Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
 | Header line | Values |
 | --- | --- |
 | `althold_gain` | `althold_alt_p_gain`, `_i_gain`, `_d_gain` |
-| `althold_limits` | `althold_max_climb_rate`, `althold_stick_deadband`, `althold_hover_collective` |
+| `althold_limits` | `althold_max_climb_rate`, `althold_stick_deadband`, `althold_hover_collective`, `althold_exit_time` (since 2026-11-04) |
 | `poshold_gain` | `poshold_pos_p_gain`, `poshold_vel_p_gain`, `poshold_vel_i_gain` |
 | `poshold_limits` | `poshold_max_horiz_speed`, `poshold_max_tilt_angle`, `poshold_stick_deadband` |
 | `harddeck_altitude` | `harddeck_altitude`, `_arm_margin`, `_recovery_margin`, `_release_altitude` |

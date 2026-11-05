@@ -1255,6 +1255,7 @@ const clivalue_t valueTable[] = {
     { "althold_max_climb_rate",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.max_climb_rate) },
     { "althold_stick_deadband",     VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.stick_deadband) },
     { "althold_hover_collective",   VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.hover_collective) },
+    { "althold_exit_time",          VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, althold.exit_time) },
 
     { "harddeck_altitude",          VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 10000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.altitude) },
     { "harddeck_arm_margin",        VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.arm_margin) },
