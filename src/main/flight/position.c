@@ -191,7 +191,7 @@ enum {
 // Bits 16-24: that heading offset in degrees (0-359)
 
 // Heading alignment from flow vs GPS velocity (see headingAlign_t)
-#define HDG_FLOW_HISTORY            16      // fused flow samples kept (~300 ms)
+#define HDG_FLOW_HISTORY            24      // fused flow samples kept (~450 ms, room for FBUS delay)
 #define HDG_GPS_VEL_DELAY_MS        80      // GPS velocity measured this long before it leaves the receiver
 #define HDG_PAIR_MAX_SKEW_MS        60      // flow sample at most this far from that time
 #define HDG_MIN_SPEED_CMS           50.0f   // both speeds at least this for a pair
@@ -960,7 +960,8 @@ static void headingAlignUpdate(timeMs_t nowMs)
         return;
     }
 
-    const timeMs_t measuredMs = nowMs - HDG_GPS_VEL_DELAY_MS;
+    // plus the transport (GPS ADV Plus over FBUS): age on the sensor + poll and hand-over here
+    const timeMs_t measuredMs = nowMs - HDG_GPS_VEL_DELAY_MS - gpsSol.transportDelayMs;
     int best = -1;
     uint32_t bestSkew = HDG_PAIR_MAX_SKEW_MS + 1;
     for (int i = 0; i < HDG_FLOW_HISTORY; i++) {

@@ -56,6 +56,9 @@ typedef struct gpsSolutionData_s {
     int32_t velN;                   // cm/s, North positive
     int32_t velE;                   // cm/s, East positive
     bool velNEValid;
+    // Extra delay of an external transport (GPS ADV Plus over FBUS: NAV-PVT on the sensor ->
+    // solution here), ms; 0 for a receiver on a serial port
+    uint16_t transportDelayMs;
 } gpsSolutionData_t;
 
 typedef struct gpsData_s {

@@ -27,6 +27,8 @@
 #include "pg/sbus_output.h"
 #include "pg/servos.h"
 #include "pg/bus_servo.h"
+#include "pg/compass.h"
+#include "pg/gps.h"
 
 #include "common/maths.h"
 #include "common/time.h"
@@ -150,6 +152,49 @@ static int8_t smartportMasterStripPhyIDCheckBits(uint8_t phyID)
     return phyID == phyIDCheck ? smartportPhyID : -1;
 }
 
+/*
+ * GPS ADV Plus: switch its nav mode on (private config page 0x89 = 1) when the GPS or the
+ * compass is taken from FBUS and the sensor sends no nav blocks yet. The sensor saves the
+ * setting, so this normally happens once. Disarmed only, every 2 s until the blocks arrive.
+ */
+#define GPSADV_PAGE_NAV_MODE        0x89
+#define NAV_ENABLE_INTERVAL_US      2000000
+
+static bool fbusMasterNavEnableFrame(fbusMasterDownlink_t *downlink, timeUs_t currentTimeUs)
+{
+    static timeUs_t lastUs;
+    bool wanted = false;
+
+#ifdef USE_GPS
+    wanted |= gpsConfig()->provider == GPS_FBUS;
+#endif
+#ifdef USE_MAG
+    wanted |= compassConfig()->mag_hardware == MAG_FBUS;
+#endif
+    if (!wanted || ARMING_FLAG(ARMED) || fbusSensorNavActive()) {
+        return false;
+    }
+    if (lastUs != 0 && cmpTimeUs(currentTimeUs, lastUs) < NAV_ENABLE_INTERVAL_US) {
+        return false;
+    }
+
+    uint8_t physicalId;
+    uint16_t appId;
+    if (!fbusSensorFindGps(&physicalId, &appId)) {
+        return false;
+    }
+
+    lastUs = currentTimeUs;
+    downlink->phyID = physicalId;
+    downlink->prim = FBUS_FRAME_ID_WRITE;
+    downlink->appId = appId;
+    downlink->data[0] = GPSADV_PAGE_NAV_MODE;
+    downlink->data[1] = 1;
+    downlink->data[2] = 0;
+    downlink->data[3] = 0;
+    return true;
+}
+
 static void fbusMasterPrepareFrame(fbusMasterFrame_t *frame, uint16_t *channels, timeUs_t currentTimeUs)
 {
     // Clear the control.c16 structure
@@ -212,7 +257,15 @@ static void fbusMasterPrepareFrame(fbusMasterFrame_t *frame, uint16_t *channels,
                 fbusMasterTelemetryState = FBUS_MASTER_QUERY_PHY_ID;
                 physIdCnt = 0;
             }
-            
+
+            if (fbusMasterTelemetryState == FBUS_MASTER_QUERY_PHY_ID &&
+                fbusMasterNavEnableFrame(&frame->downlink, currentTimeUs)) {
+                smartportMasterPhyIDFillCheckBits(&frame->downlink.phyID);
+                crc = frskyCheckSum((uint8_t *)&frame->downlink.phyID, FBUS_DOWNLINK_PAYLOAD_SIZE);
+                frame->downlink.crc = crc;
+                break;
+            }
+
             switch (fbusMasterTelemetryState) {
                 case FBUS_MASTER_SCAN_PHY_ID:
                     frame->downlink.phyID = fbusMasterTakeNextScanPhysId();
@@ -226,6 +279,20 @@ static void fbusMasterPrepareFrame(fbusMasterFrame_t *frame, uint16_t *channels,
                         frame->downlink.phyID = 0;
                         frame->downlink.prim = FBUS_FRAME_ID_NULL;
                         break;
+                    }
+
+                    // A GPS ADV Plus in nav mode gets every other poll on top of its round-robin
+                    // turn: ~70 frames/s of 10 Hz solutions and ~40 of 20 Hz compass
+                    {
+                        static bool navTurn;
+                        const int navPhysId = fbusSensorNavPhysicalId();
+                        navTurn = !navTurn;
+                        if (navPhysId >= 0 && navTurn) {
+                            currentPhysId = navPhysId;
+                            frame->downlink.phyID = currentPhysId;
+                            frame->downlink.prim = FBUS_FRAME_ID_DATA;
+                            break;
+                        }
                     }
 
                     if (physIdCnt >= physIdsfound) {

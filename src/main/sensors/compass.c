@@ -36,6 +36,7 @@
 #include "drivers/compass/compass_ak8975.h"
 #include "drivers/compass/compass_ak8963.h"
 #include "drivers/compass/compass_fake.h"
+#include "drivers/compass/compass_fbus.h"
 #include "drivers/compass/compass_hmc5883l.h"
 #include "drivers/compass/compass_lis3mdl.h"
 #include "drivers/compass/compass_mpu925x_ak8963.h"
@@ -88,6 +89,18 @@ bool compassDetect(magDev_t *magDev, uint8_t *alignment)
 
 #ifdef USE_MAG_DATA_READY_SIGNAL
     magDev->magIntExtiTag = compassConfig()->interruptTag;
+#endif
+
+#if defined(USE_FBUS_MASTER) || defined(USE_SPORT_MASTER)
+    // No bus of its own: the field arrives over FBUS from a GPS ADV Plus in nav mode
+    if (compassConfig()->mag_hardware == MAG_FBUS) {
+        if (!fbusMagDetect(magDev)) {
+            return false;
+        }
+        detectedSensors[SENSOR_INDEX_MAG] = MAG_FBUS;
+        sensorsSet(SENSOR_MAG);
+        return true;
+    }
 #endif
 
     switch (compassConfig()->mag_busType) {
@@ -282,6 +295,11 @@ bool compassInit(void)
 
 bool compassIsHealthy(void)
 {
+#if defined(USE_FBUS_MASTER) || defined(USE_SPORT_MASTER)
+    if (detectedSensors[SENSOR_INDEX_MAG] == MAG_FBUS && !fbusMagIsFresh()) {
+        return false;
+    }
+#endif
     return (mag.magADC[X] != 0) && (mag.magADC[Y] != 0) && (mag.magADC[Z] != 0);
 }
 

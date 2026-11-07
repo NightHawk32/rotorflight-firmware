@@ -62,6 +62,39 @@ typedef enum {
     FBUS_GPS_TIME_BASE      = 0x0850,  // 0x0850~0x085f
 } fbusGpsDataId_e;
 
+// GPS ADV Plus nav mode (DIY App-IDs, gps-adv-plus-firmware protocol/gps_adv_plus.toml).
+// Each NAV-PVT arrives as one block HDR, LAT, LON, VEL, ACC, ALT, VZ; the compass as MAG_XY, MAG_Z.
+typedef enum {
+    FBUS_NAV_MAG_XY_BASE = 0x51E0,  // x | y << 16, int16 0.1 uT, sensor frame forward/right/down
+    FBUS_NAV_MAG_Z_BASE  = 0x51F0,  // z int16 0.1 uT | seq << 16
+    FBUS_NAV_HDR_BASE    = 0x5290,  // seq 0-7, fixType 8-11, fixOK 12, diff 13, numSV 16-21, age ms 22-31
+    FBUS_NAV_LAT_BASE    = 0x52A0,  // int32 deg * 1e7
+    FBUS_NAV_LON_BASE    = 0x52B0,  // int32 deg * 1e7
+    FBUS_NAV_VEL_BASE    = 0x52C0,  // velN | velE << 16, int16 cm/s
+    FBUS_NAV_ACC_BASE    = 0x52D0,  // hAcc cm 0-15, sAcc cm/s 16-23, pDOP * 10 24-31
+    FBUS_NAV_ALT_BASE    = 0x52E0,  // int32 hMSL cm
+    FBUS_NAV_VZ_BASE     = 0x52F0,  // velD int16 cm/s | vAcc cm << 16
+} fbusNavDataId_e;
+
+// One complete nav block
+typedef struct {
+    int32_t lat;                    // deg * 1e7
+    int32_t lon;
+    int32_t altCm;                  // above MSL
+    int16_t velN;                   // cm/s
+    int16_t velE;
+    int16_t velD;
+    uint16_t hAcc;                  // cm
+    uint16_t vAcc;                  // cm
+    uint8_t sAcc;                   // cm/s
+    uint8_t pdop10;                 // pDOP * 10
+    uint8_t fixType;
+    uint8_t numSat;
+    bool fixOk;
+    uint16_t ageMs;                 // NAV-PVT arrival on the sensor -> header sent
+    timeUs_t rxUs;                  // header received here
+} fbusNavSolution_t;
+
 // GPS Latitude/Longitude bit definitions
 #define FBUS_GPS_LAT_LON_BIT31      (1U << 31)  // 0=Latitude, 1=Longitude
 #define FBUS_GPS_LAT_LON_BIT30      (1U << 30)  // 0=North/East, 1=South/West
@@ -227,6 +260,14 @@ void fbusSensorGetEscData(fbusEscData_t *escData);
 bool fbusSensorHasEscData(void);
 void fbusSensorGetFlvssData(fbusFlvssData_t *flvssData);
 bool fbusSensorHasFlvssData(void);
+
+// GPS ADV Plus nav mode
+bool fbusSensorNavActive(void);                         // nav blocks arrived within the last second
+bool fbusSensorFindGps(uint8_t *physicalId, uint16_t *appId);   // a GPS seen on FBUS
+int fbusSensorNavPhysicalId(void);                      // their physical ID, -1 = none
+bool fbusSensorGetMag(int16_t magFRD[3]);               // latest field, sensor frame; false = stale
+uint32_t fbusSensorNavBlocks(void);                     // complete blocks received
+uint32_t fbusSensorNavDropped(void);                    // incomplete blocks dropped
 
 // GPS data conversion functions
 int32_t fbusGpsConvertLatLon(uint32_t fbusData);

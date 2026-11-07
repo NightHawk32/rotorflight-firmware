@@ -15,6 +15,7 @@
  * along with this software. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <math.h>
 #include <string.h>
 
 #include "platform.h"
@@ -71,6 +72,37 @@ static fbusCurrentData_t fbusCurrent;
 static fbusEscData_t fbusEsc;
 
 static fbusFlvssData_t fbusFlvss;
+
+// GPS ADV Plus nav mode. Blocks are assembled in the FBUS receive interrupt and handed to
+// fbusSensorUpdate() whole.
+#define NAV_PART_LAT    BIT(0)
+#define NAV_PART_LON    BIT(1)
+#define NAV_PART_VEL    BIT(2)
+#define NAV_PART_ACC    BIT(3)
+#define NAV_PART_ALT    BIT(4)
+#define NAV_PART_VZ     BIT(5)
+#define NAV_PARTS_ALL   0x3F
+#define NAV_TIMEOUT_US  1000000
+#define NAV_MAG_TIMEOUT_US 500000
+
+static fbusNavSolution_t navWork;
+static uint8_t navParts;
+static bool navOpen;
+static fbusNavSolution_t navReady;
+static volatile bool navReadyNew;
+static volatile timeUs_t navLastUs;
+static volatile int8_t navPhysId = -1;
+static uint32_t navBlocks;
+static uint32_t navDropped;
+
+static int16_t magXY[2];
+static bool magXYValid;
+static int16_t magFRD[3];
+static volatile timeUs_t magLastUs;
+
+#ifdef USE_GPS
+static timeUs_t legacyGpsConsumedUs;
+#endif
 
 #define FBUS_SENSOR_CACHE_SIZE 32
 static fbusSensorData_t sensorCache[FBUS_SENSOR_CACHE_SIZE];
@@ -225,6 +257,22 @@ static fbusDetectedSensorType_e classifySensorTypeByAppId(uint16_t appId)
         (appId >= FBUS_GPS_COURSE_BASE && appId <= (FBUS_GPS_COURSE_BASE + 0x0F)) ||
         (appId >= FBUS_GPS_TIME_BASE && appId <= (FBUS_GPS_TIME_BASE + 0x0F))) {
         return FBUS_DETECTED_SENSOR_GPS;
+    }
+
+    // GPS ADV Plus nav mode
+    switch (appId & 0xFFF0) {
+    case FBUS_NAV_HDR_BASE:
+    case FBUS_NAV_LAT_BASE:
+    case FBUS_NAV_LON_BASE:
+    case FBUS_NAV_VEL_BASE:
+    case FBUS_NAV_ACC_BASE:
+    case FBUS_NAV_ALT_BASE:
+    case FBUS_NAV_VZ_BASE:
+    case FBUS_NAV_MAG_XY_BASE:
+    case FBUS_NAV_MAG_Z_BASE:
+        return FBUS_DETECTED_SENSOR_GPS;
+    default:
+        break;
     }
 
     // XACT Servo signature block: 0x6800~0x680F
@@ -449,6 +497,176 @@ void fbusSensorMarkStartupFrameSent(uint8_t physicalId)
     }
 }
 
+/*
+ * GPS ADV Plus nav mode frames (receive interrupt). A block is HDR followed by the six data
+ * frames of the same NAV-PVT; it is taken only when all six arrived after its header, so a lost
+ * frame drops one 10 Hz solution instead of mixing two.
+ */
+static bool processNavFrame(uint8_t physicalId, uint16_t appId, uint32_t data, timeUs_t nowUs)
+{
+    uint8_t part = 0;
+
+    switch (appId & 0xFFF0) {
+    case FBUS_NAV_HDR_BASE:
+        if (navOpen) {
+            navDropped++;
+        }
+        memset(&navWork, 0, sizeof(navWork));
+        navWork.fixType = (data >> 8) & 0x0F;
+        navWork.fixOk = (data >> 12) & 1;
+        navWork.numSat = (data >> 16) & 0x3F;
+        navWork.ageMs = data >> 22;
+        navWork.rxUs = nowUs;
+        navParts = 0;
+        navOpen = true;
+        return true;
+    case FBUS_NAV_LAT_BASE:
+        navWork.lat = (int32_t)data;
+        part = NAV_PART_LAT;
+        break;
+    case FBUS_NAV_LON_BASE:
+        navWork.lon = (int32_t)data;
+        part = NAV_PART_LON;
+        break;
+    case FBUS_NAV_VEL_BASE:
+        navWork.velN = (int16_t)(data & 0xFFFF);
+        navWork.velE = (int16_t)(data >> 16);
+        part = NAV_PART_VEL;
+        break;
+    case FBUS_NAV_ACC_BASE:
+        navWork.hAcc = data & 0xFFFF;
+        navWork.sAcc = (data >> 16) & 0xFF;
+        navWork.pdop10 = data >> 24;
+        part = NAV_PART_ACC;
+        break;
+    case FBUS_NAV_ALT_BASE:
+        navWork.altCm = (int32_t)data;
+        part = NAV_PART_ALT;
+        break;
+    case FBUS_NAV_VZ_BASE:
+        navWork.velD = (int16_t)(data & 0xFFFF);
+        navWork.vAcc = data >> 16;
+        part = NAV_PART_VZ;
+        break;
+    case FBUS_NAV_MAG_XY_BASE:
+        magXY[0] = (int16_t)(data & 0xFFFF);
+        magXY[1] = (int16_t)(data >> 16);
+        magXYValid = true;
+        return true;
+    case FBUS_NAV_MAG_Z_BASE:
+        if (magXYValid) {
+            magFRD[0] = magXY[0];
+            magFRD[1] = magXY[1];
+            magFRD[2] = (int16_t)(data & 0xFFFF);
+            magLastUs = nowUs;
+            magXYValid = false;
+        }
+        return true;
+    default:
+        return false;
+    }
+
+    if (navOpen) {
+        navParts |= part;
+        if (navParts == NAV_PARTS_ALL) {
+            navReady = navWork;
+            navReadyNew = true;
+            navOpen = false;
+            navBlocks++;
+            navLastUs = nowUs;
+            navPhysId = physicalId;
+        }
+    }
+    return true;
+}
+
+bool fbusSensorFindGps(uint8_t *physicalId, uint16_t *appId)
+{
+    for (uint8_t i = 0; i < observedSensorCount; i++) {
+        const fbusObservedSensor_t *s = &observedSensors[i];
+        if (s->source != FBUS_SENSOR_SOURCE_FBUS || s->detectedType != FBUS_DETECTED_SENSOR_GPS) {
+            continue;
+        }
+        for (uint8_t k = 0; k < s->appIdCount; k++) {
+            // a standard GPS App-ID: the sensor takes configuration frames for its own App-IDs
+            if (s->appIds[k] >= FBUS_GPS_LATITUDE_BASE && s->appIds[k] <= FBUS_GPS_TIME_BASE + 0x0F) {
+                *physicalId = s->physicalId;
+                *appId = s->appIds[k];
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool fbusSensorNavActive(void)
+{
+    const timeUs_t last = navLastUs;
+    return last != 0 && cmpTimeUs(micros(), last) < NAV_TIMEOUT_US;
+}
+
+int fbusSensorNavPhysicalId(void)
+{
+    return fbusSensorNavActive() ? navPhysId : -1;
+}
+
+bool fbusSensorGetMag(int16_t mag[3])
+{
+    timeUs_t last;
+    ATOMIC_BLOCK(NVIC_PRIO_MAX) {
+        last = magLastUs;
+        mag[0] = magFRD[0];
+        mag[1] = magFRD[1];
+        mag[2] = magFRD[2];
+    }
+    return last != 0 && cmpTimeUs(micros(), last) < NAV_MAG_TIMEOUT_US;
+}
+
+uint32_t fbusSensorNavBlocks(void)
+{
+    return navBlocks;
+}
+
+uint32_t fbusSensorNavDropped(void)
+{
+    return navDropped;
+}
+
+#ifdef USE_GPS
+// A nav block into the GPS solution, as the u-blox driver fills it from NAV-PVT
+static void fbusApplyNavSolution(const fbusNavSolution_t *s, timeUs_t currentTimeUs)
+{
+    gpsSol.llh.lat = s->lat;
+    gpsSol.llh.lon = s->lon;
+    gpsSol.llh.altCm = s->altCm;
+    gpsSol.numSat = s->numSat;
+    gpsSol.hdop = s->pdop10 * 10;
+    gpsSol.velN = s->velN;
+    gpsSol.velE = s->velE;
+    gpsSol.velNEValid = s->fixOk;
+    // 0 means "not reported" to the estimator: the sensor rounds down to whole cm
+    gpsSol.hAcc = MAX(s->hAcc, 1);
+    gpsSol.vAcc = MAX(s->vAcc, 1);
+    gpsSol.sAcc = MAX(s->sAcc, 1);
+
+    const float groundSpeed = sqrtf(sq((float)s->velN) + sq((float)s->velE));
+    gpsSol.groundSpeed = lrintf(groundSpeed);
+    gpsSol.speed3d = lrintf(sqrtf(sq(groundSpeed) + sq((float)s->velD)));
+    int course = lrintf(atan2_approx(s->velE, s->velN) * (1800.0f / M_PIf));
+    if (course < 0) {
+        course += 3600;
+    }
+    gpsSol.groundCourse = course % 3600;
+
+    // Time from the NAV-PVT reaching the sensor until now
+    gpsSol.transportDelayMs = s->ageMs + cmpTimeUs(currentTimeUs, s->rxUs) / 1000;
+
+    gpsSetFixState(s->fixOk && s->fixType == 3);
+    gpsData.lastMessage = millis();
+    GPS_update |= GPS_MSP_UPDATE;
+}
+#endif
+
 bool fbusSensorProcessDataWithSource(uint8_t physicalId, uint16_t appId, uint32_t data, fbusSensorSource_e source)
 {
     timeUs_t currentTimeUs = micros();
@@ -465,6 +683,10 @@ bool fbusSensorProcessDataWithSource(uint8_t physicalId, uint16_t appId, uint32_
 
     if (fbusSensorIsForwarded(physicalId)) {
         addFrameToBuffer(physicalId, appId, data);
+    }
+
+    if (processNavFrame(physicalId, appId, data, currentTimeUs)) {
+        return true;
     }
 
     if (detectedType == FBUS_DETECTED_SENSOR_GPS) {
@@ -693,8 +915,29 @@ void fbusSensorUpdate(timeUs_t currentTimeUs)
     }
 
 #ifdef USE_GPS
-    if (gpsUsesFbusTransport()) {
+    if (gpsUsesFbusTransport() && fbusSensorNavActive()) {
+        // GPS ADV Plus nav mode: one GPS message per complete 10 Hz block
+        if (navReadyNew) {
+            fbusNavSolution_t solution;
+            ATOMIC_BLOCK(NVIC_PRIO_MAX) {
+                solution = navReady;
+                navReadyNew = false;
+            }
+            fbusApplyNavSolution(&solution, currentTimeUs);
+        }
+    }
+    else if (gpsUsesFbusTransport()) {
+        // Standard GPS App-IDs: no velocity vector or accuracies
+        gpsSol.velNEValid = false;
+        gpsSol.hAcc = gpsSol.vAcc = gpsSol.sAcc = 0;
+        gpsSol.transportDelayMs = 0;
+
         if (fbusGps.hasPosition) {
+            // One GPS message per new frame, not per call
+            if (fbusGps.lastUpdateUs == legacyGpsConsumedUs) {
+                return;
+            }
+            legacyGpsConsumedUs = fbusGps.lastUpdateUs;
             gpsSol.llh.lat = fbusGps.latitude;
             gpsSol.llh.lon = fbusGps.longitude;
 

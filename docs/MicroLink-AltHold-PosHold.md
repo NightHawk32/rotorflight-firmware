@@ -164,12 +164,44 @@ raw baro sample.
 | --- | --- | --- |
 | `UBLOX` | Serial GPS | hAcc/vAcc/sAcc per fix, Doppler N/E/D velocity. Best case |
 | `NMEA` | Serial GPS | HDOP only |
-| `MSP`, `FBUS` | As on master | HDOP 1.0 assumed by the transport |
+| `MSP` | As on master | HDOP 1.0 assumed by the transport |
+| `FBUS` | FrSky GPS on the `FBUS_MASTER` port | Standard App-IDs: position once a second, no velocity vector or accuracies (as on master; a GPS message is now counted per new frame, not per FBUS cycle). **GPS ADV Plus in nav mode** (gps-adv-plus-firmware ≥ 0.2): the full NAV-PVT at 10 Hz, as with `UBLOX` |
 | `CRSF` (new) | GPS frames from a CRSF sensor accessory on the `FUNCTION_CRSF_SENSORS` port (bit 22, `crsf_sensors_*` settings) | None. Assumed 2.5 m / 4 m / 0.4 m/s. A 3D fix is assumed at 4 or more satellites. Set `position_gps_min_sats` to what the accessory reports in practice |
 
 A CRSF GPS may report at only 1 Hz. The estimator keeps GPS as the position
 anchor for 2 s after each fix, so this works, but the IMU dead-reckons in
 between and the position σ (`POS_EST_XY` field 6) breathes at the fix rate.
+
+#### GPS ADV Plus over FBUS (GPS + compass on one wire)
+
+With the [gps-adv-plus-firmware](https://github.com/FrSkyRC/gps-adv-plus-firmware) (branch `feature/nav-mode`)
+the GPS ADV Plus sends each 10 Hz NAV-PVT as one block (position 1e-7°, N/E/D
+velocity, hAcc/vAcc/sAcc, pDOP, satellites, fix) and its IST8308 compass at
+20 Hz. Rotorflight decodes these into the same GPS solution as `UBLOX`, and the
+compass is a normal compass (`mag_hardware = FBUS`), so the
+calibration, `align_mag` and the IMU fusion all apply, and
+`imuHeadingIsAbsolute()` holds as soon as it is healthy.
+
+```
+serial <port> 524288 ...       # FUNCTION_FBUS_MASTER (bit 19) on the port the GPS is wired to
+set gps_provider = FBUS
+feature GPS
+set mag_hardware = FBUS
+set fbus_master_telemetry_rate = 300   # 200 is enough with the GPS alone on the bus
+save
+```
+
+- Rotorflight switches the sensor's nav mode on by itself (config page `0x89`,
+  disarmed, every 2 s until blocks arrive). The sensor saves it.
+- The FBUS master polls the nav sensor on every other telemetry slot.
+- The heading alignment adds the transport delay (time on the sensor + hand-over)
+  to its 80 ms receiver delay when it pairs GPS and flow velocity.
+- Compass axes: the sensor sends x forward, y right, z down after its own mounting
+  setting; the driver turns that into the IMU's x forward, y left, z up. Check the
+  heading on the bench (Configurator, or `status`), then calibrate the compass
+  (`mag_calibration`) on the model.
+- If nav blocks stop for 1 s, the GPS falls back to the standard 1 Hz values
+  (no velocity), and the compass reports unhealthy after 0.5 s.
 
 ### 3.2 New serial port function
 
