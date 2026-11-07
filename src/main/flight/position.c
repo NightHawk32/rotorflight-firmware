@@ -186,6 +186,18 @@ enum {
 #define POS_EST_XY_CLAMPED          (1 << 3)
 #define POS_EST_XY_GPS_ORIGIN       (1 << 4)
 #define POS_EST_XY_GPS_VEL_ONLY     (1 << 5)   // AUTO: GPS velocity fused alongside flow
+#define POS_EST_XY_GPS_NO_HEADING   (1 << 6)   // GPS held off: heading not referenced to North
+#define POS_EST_XY_HDG_ALIGNED      (1 << 7)   // heading offset learned from flow vs GPS
+// Bits 16-24: that heading offset in degrees (0-359)
+
+// Heading alignment from flow vs GPS velocity (see headingAlign_t)
+#define HDG_FLOW_HISTORY            16      // fused flow samples kept (~300 ms)
+#define HDG_GPS_VEL_DELAY_MS        80      // GPS velocity measured this long before it leaves the receiver
+#define HDG_PAIR_MAX_SKEW_MS        60      // flow sample at most this far from that time
+#define HDG_MIN_SPEED_CMS           50.0f   // both speeds at least this for a pair
+#define HDG_DECAY                   0.99f   // per pair: ~100 pairs (10 s of motion at 10 Hz)
+#define HDG_MIN_WEIGHT              200000.0f   // ~2-3 s of motion at 1 m/s
+#define HDG_MIN_CONSISTENCY         0.9f    // |sum| / weight: pairs agree on the angle
 // Maximum dead-reckoning radius (cm) while no absolute (GPS) anchor is active
 #define POSXY_MAX_DEADRECKONING_CM  1000.0f
 
@@ -364,13 +376,57 @@ typedef struct {
 #ifdef USE_GPS
     timeMs_t    lastGpsFuseMs;  // GPS position fused (anchors the estimate)
     timeMs_t    lastGpsVelFuseMs; // GPS velocity only, alongside flow
+    bool        gpsNoHeading;   // GPS held off: heading not referenced to North
     uint32_t    lastGpsStampMs;
+    // GPS position frame: the fix at anchoring (origin) maps onto the filter
+    // position at that moment (anchor); later fixes are added as rotated
+    // displacements from there
     int32_t     originLat;      // 1e-7 deg
     int32_t     originLon;      // 1e-7 deg
+    float       anchorEast;     // cm, filter position when the origin was set
+    float       anchorNorth;
     float       lonScale;       // cos(origin latitude)
     bool        originSet;
+
+    // Recent fused flow velocities (heading frame) for the heading
+    // alignment, which pairs each GPS velocity with the flow of the time
+    // the receiver measured it
+    float       flowHistEast[HDG_FLOW_HISTORY];
+    float       flowHistNorth[HDG_FLOW_HISTORY];
+    timeMs_t    flowHistMs[HDG_FLOW_HISTORY];
+    uint8_t     flowHistIdx;
 #endif
 } posXYState_t;
+
+#ifdef USE_GPS
+/*
+ * Heading alignment without a compass.
+ *
+ * The XY filters, the flow and position hold all work in the IMU heading
+ * frame, whose zero is wherever the model pointed at power-on unless a
+ * compass or the GPS course has referenced it to North.  GPS is in true
+ * North/East.  While the model moves within LIDAR range, both the flow
+ * (heading frame) and the GPS Doppler velocity (North/East) see the same
+ * motion, and the angle between them is the heading offset.  Each pair
+ * adds g * conj(f) (complex East + j*North) to a sum that forgets old pairs
+ * slowly, so it follows the gyro's yaw drift; its argument is the offset,
+ * its length against the summed |g||f| how well the pairs agree.  GPS
+ * measurements are rotated by -offset into the heading frame before fusion.
+ *
+ * The offset belongs to the IMU yaw, not to a flight: it is kept across
+ * arming and only reset when the IMU re-initialises its heading.
+ */
+typedef struct {
+    float       sumRe;          // decaying sum of g * conj(f), cm^2/s^2
+    float       sumIm;
+    float       weight;         // decaying sum of |g| * |f|
+    float       offsetRad;      // heading frame -> North/East
+    bool        aligned;
+    uint8_t     imuHeadingResets;
+} headingAlign_t;
+
+static headingAlign_t hdg;
+#endif
 
 static FAST_DATA posXYState_t posxy;
 #endif
@@ -829,6 +885,10 @@ static void estimatorResetXY(void)
     posxy.lastGpsVelFuseMs = 0;
     posxy.lastGpsStampMs = 0;
     posxy.originSet = false;
+    // The heading alignment itself (hdg) is kept: it belongs to the IMU yaw
+    for (int i = 0; i < HDG_FLOW_HISTORY; i++) {
+        posxy.flowHistMs[i] = 0;
+    }
 #endif
 }
 
@@ -853,6 +913,95 @@ static void flowGyroRate(uint8_t delaySteps, uint8_t windowSteps, float *rollRat
 // checked on the bench.  Disarmed, the IMU acceleration is not used (the
 // filter only smooths the measurements, as the Z filter does); arming resets
 // the frame to the arm point.  The controllers only act while armed.
+#ifdef USE_GPS
+/*
+ * GPS velocity North/East (cm/s): the receiver's Doppler velocity when it
+ * reports it (u-blox); ground course is undefined at hover speeds, so
+ * decomposing speed and course is only the NMEA fallback.
+ */
+static void gpsVelocityNE(float *velEast, float *velNorth)
+{
+    if (gpsSol.velNEValid) {
+        *velEast = gpsSol.velE;
+        *velNorth = gpsSol.velN;
+    }
+    else {
+        // groundSpeed is cm/s (both parsers); groundCourse is decidegrees from North
+        const float speedCms = gpsSol.groundSpeed;
+        const float courseRad = DECIDEGREES_TO_RADIANS(gpsSol.groundCourse);
+        *velEast = speedCms * sin_approx(courseRad);
+        *velNorth = speedCms * cos_approx(courseRad);
+    }
+}
+
+static void headingAlignReset(void)
+{
+    hdg.sumRe = 0;
+    hdg.sumIm = 0;
+    hdg.weight = 0;
+    hdg.offsetRad = 0;
+    hdg.aligned = false;
+}
+
+/*
+ * One GPS message: pair its velocity with the fused flow velocity of the
+ * time the receiver measured it, and update the heading offset.
+ */
+static void headingAlignUpdate(timeMs_t nowMs)
+{
+    if (imuGetHeadingResetCount() != hdg.imuHeadingResets) {
+        // The IMU replaced its yaw reference: the learned offset is void
+        hdg.imuHeadingResets = imuGetHeadingResetCount();
+        headingAlignReset();
+    }
+
+    // Only the receiver's own velocity: speed and course are undefined at low speed
+    if (!gpsSol.velNEValid) {
+        return;
+    }
+
+    const timeMs_t measuredMs = nowMs - HDG_GPS_VEL_DELAY_MS;
+    int best = -1;
+    uint32_t bestSkew = HDG_PAIR_MAX_SKEW_MS + 1;
+    for (int i = 0; i < HDG_FLOW_HISTORY; i++) {
+        if (posxy.flowHistMs[i] == 0) {
+            continue;
+        }
+        const int32_t d = (int32_t)(posxy.flowHistMs[i] - measuredMs);
+        const uint32_t skew = (d < 0) ? (uint32_t)(-d) : (uint32_t)d;
+        if (skew < bestSkew) {
+            bestSkew = skew;
+            best = i;
+        }
+    }
+    if (best < 0) {
+        return;
+    }
+
+    const float gE = gpsSol.velE;
+    const float gN = gpsSol.velN;
+    const float fE = posxy.flowHistEast[best];
+    const float fN = posxy.flowHistNorth[best];
+    const float gSpeed = sqrtf(sq(gE) + sq(gN));
+    const float fSpeed = sqrtf(sq(fE) + sq(fN));
+    if (gSpeed < HDG_MIN_SPEED_CMS || fSpeed < HDG_MIN_SPEED_CMS) {
+        return;
+    }
+
+    // g * conj(f) with complex East + j*North: its argument is the angle
+    // from the heading frame to North/East
+    hdg.sumRe  = HDG_DECAY * hdg.sumRe  + (gE * fE + gN * fN);
+    hdg.sumIm  = HDG_DECAY * hdg.sumIm  + (gN * fE - gE * fN);
+    hdg.weight = HDG_DECAY * hdg.weight + gSpeed * fSpeed;
+
+    const float length = sqrtf(sq(hdg.sumRe) + sq(hdg.sumIm));
+    if (hdg.weight >= HDG_MIN_WEIGHT && length >= HDG_MIN_CONSISTENCY * hdg.weight) {
+        hdg.offsetRad = atan2_approx(hdg.sumIm, hdg.sumRe);
+        hdg.aligned = true;
+    }
+}
+#endif
+
 static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float accelNorth,
                               float rollRate, float pitchRate, bool armed)
 {
@@ -883,16 +1032,39 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     // against the height-scaled flow noise, it takes over smoothly as the
     // flow gets worse with height, without moving the held position.
     const bool gpsStandby = xySource == XY_SOURCE_AUTO && posxy.flowFresh;
-    if (gpsStandby) {
+
+    const bool newGpsMessage = gpsData.lastMessage != posxy.lastGpsStampMs;
+    if (newGpsMessage && gpsIsUsable()) {
+        headingAlignUpdate(nowMs);
+    }
+
+    // The XY filters run in the IMU heading frame.  GPS North/East may only
+    // be fused once the angle between the two is known: learned from flow
+    // vs GPS velocity, or zero when the IMU heading is referenced to North
+    // (compass, or set from the GPS course).  Until then the frames can be
+    // any angle apart (2026-11-05: 15-170 deg) and GPS corrections would
+    // push the model sideways or backwards.
+    float headingOffset = 0.0f;
+    if (hdg.aligned) {
+        headingOffset = hdg.offsetRad;
+        posxy.gpsNoHeading = false;
+    }
+    else {
+        posxy.gpsNoHeading = !imuHeadingIsAbsolute();
+    }
+
+    if (gpsStandby || posxy.gpsNoHeading) {
         posxy.originSet = false;
     }
     const bool gpsVelOnly = gpsStandby && gpsSol.velNEValid && gpsSol.sAcc > 0;
 
     // --- GPS position/velocity: fused once per new GPS message ---
-    if (xySource != XY_SOURCE_FLOW_ONLY && (!gpsStandby || gpsVelOnly) && gpsIsUsable() &&
-        gpsData.lastMessage != posxy.lastGpsStampMs)
+    if (xySource != XY_SOURCE_FLOW_ONLY && !posxy.gpsNoHeading &&
+        (!gpsStandby || gpsVelOnly) && gpsIsUsable() && newGpsMessage)
     {
-        posxy.lastGpsStampMs = gpsData.lastMessage;
+        // North/East -> heading frame
+        const float cosOff = cos_approx(headingOffset);
+        const float sinOff = sin_approx(headingOffset);
 
         if (!gpsVelOnly) {
             if (!posxy.originSet) {
@@ -901,36 +1073,28 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
                 // stays continuous whether the first fix arrives before or
                 // after the model has moved.
                 posxy.lonScale = cos_approx(DEGREES_TO_RADIANS(gpsSol.llh.lat * 1e-7f));
-                posxy.originLat = gpsSol.llh.lat -
-                    lrintf(kalmanGetPosition(&posxy.kfNorth) / EARTH_CM_PER_DEG7);
-                posxy.originLon = gpsSol.llh.lon -
-                    lrintf(kalmanGetPosition(&posxy.kfEast) / (EARTH_CM_PER_DEG7 * posxy.lonScale));
+                posxy.originLat = gpsSol.llh.lat;
+                posxy.originLon = gpsSol.llh.lon;
+                posxy.anchorEast = kalmanGetPosition(&posxy.kfEast);
+                posxy.anchorNorth = kalmanGetPosition(&posxy.kfNorth);
                 posxy.originSet = true;
             }
 
-            const float north = (gpsSol.llh.lat - posxy.originLat) * EARTH_CM_PER_DEG7;
-            const float east  = (gpsSol.llh.lon - posxy.originLon) * EARTH_CM_PER_DEG7 * posxy.lonScale;
+            const float dNorth = (gpsSol.llh.lat - posxy.originLat) * EARTH_CM_PER_DEG7;
+            const float dEast  = (gpsSol.llh.lon - posxy.originLon) * EARTH_CM_PER_DEG7 * posxy.lonScale;
+            const float east  = posxy.anchorEast  + dEast * cosOff + dNorth * sinOff;
+            const float north = posxy.anchorNorth - dEast * sinOff + dNorth * cosOff;
 
             const float rPos = gpsMeasurementR(positionConfig()->est_r_gps_pos, gpsSol.hdop, gpsSol.hAcc, GPS_ASSUMED_HACC_CM);
             kalmanUpdatePosition(&posxy.kfEast, east, rPos);
             kalmanUpdatePosition(&posxy.kfNorth, north, rPos);
         }
 
-        // Doppler North/East velocity straight from the receiver when it
-        // reports it (u-blox); ground course is undefined at hover speeds,
-        // so decomposing speed and course is only the NMEA fallback.
-        float velEast, velNorth;
-        if (gpsSol.velNEValid) {
-            velEast = gpsSol.velE;
-            velNorth = gpsSol.velN;
-        }
-        else {
-            // groundSpeed is cm/s (both parsers); groundCourse is decidegrees from North
-            const float speedCms = gpsSol.groundSpeed;
-            const float courseRad = DECIDEGREES_TO_RADIANS(gpsSol.groundCourse);
-            velEast = speedCms * sin_approx(courseRad);
-            velNorth = speedCms * cos_approx(courseRad);
-        }
+        float gpsVelEast, gpsVelNorth;
+        gpsVelocityNE(&gpsVelEast, &gpsVelNorth);
+        const float velEast  =  gpsVelEast * cosOff + gpsVelNorth * sinOff;
+        const float velNorth = -gpsVelEast * sinOff + gpsVelNorth * cosOff;
+
         const float rVel = gpsMeasurementR(positionConfig()->est_r_gps_vel, gpsSol.hdop, gpsSol.sAcc, GPS_ASSUMED_SACC_CMS);
         kalmanUpdateVelocity(&posxy.kfEast, velEast, rVel);
         kalmanUpdateVelocity(&posxy.kfNorth, velNorth, rVel);
@@ -943,6 +1107,7 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
             posxy.lastGpsFuseMs = nowMs;
         }
     }
+    posxy.lastGpsStampMs = gpsData.lastMessage;
 #endif
 
     // --- Optical flow velocity: fused once per new sample ---
@@ -1063,6 +1228,12 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
                 posxy.flowRejects = 0;
                 posxy.lastFlowFuseMs = nowMs;
                 posxy.flowStatus = FLOW_STATUS_FUSED;
+#ifdef USE_GPS
+                posxy.flowHistIdx = (posxy.flowHistIdx + 1) % HDG_FLOW_HISTORY;
+                posxy.flowHistEast[posxy.flowHistIdx] = velEast;
+                posxy.flowHistNorth[posxy.flowHistIdx] = velNorth;
+                posxy.flowHistMs[posxy.flowHistIdx] = nowMs;
+#endif
             }
             posxy.flowVelEast = velEast;
             posxy.flowVelNorth = velNorth;
@@ -1143,6 +1314,16 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
     }
     if (posxy.lastGpsVelFuseMs != 0 && (nowMs - posxy.lastGpsVelFuseMs) < XY_GPS_TIMEOUT_MS) {
         xyFlags |= POS_EST_XY_GPS_VEL_ONLY;
+    }
+    if (posxy.gpsNoHeading) {
+        xyFlags |= POS_EST_XY_GPS_NO_HEADING;
+    }
+    if (hdg.aligned) {
+        int offsetDeg = lrintf(hdg.offsetRad * (180.0f / M_PIf));
+        if (offsetDeg < 0) {
+            offsetDeg += 360;
+        }
+        xyFlags |= POS_EST_XY_HDG_ALIGNED | ((uint32_t)(offsetDeg % 360) << 16);
     }
 #endif
 

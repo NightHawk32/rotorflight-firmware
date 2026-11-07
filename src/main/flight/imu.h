@@ -76,5 +76,7 @@ void imuSetHasNewData(uint32_t dt);
 #endif
 
 bool shouldInitializeGPSHeading(void);
+bool imuHeadingIsAbsolute(void);
+uint8_t imuGetHeadingResetCount(void);
 bool isUpright(void);
 bool isUpsidedown(void);

@@ -245,7 +245,7 @@ within 50 cm of the model, so the model stops about where the stick is released.
 | 4 | Flow velocity East | Last fused flow sample |
 | 5 | Flow velocity North | |
 | 6 | Position 1σ | cm, average of both axes |
-| 7 | Flags | Bits 0–5: 1 valid, 2 GPS position fused < 2 s ago, 4 flow fused < 500 ms ago, 8 dead-reckoning clamp active, 16 GPS origin set, 32 GPS velocity fused alongside flow (`AUTO` with a u-blox GPS, since 2026-11-05). **Bits 8+ (`v >> 8`)**: flow status as in `OPTICAL_FLOW` field 7 |
+| 7 | Flags | Bits 0–7: 1 valid, 2 GPS position fused < 2 s ago, 4 flow fused < 500 ms ago, 8 dead-reckoning clamp active, 16 GPS origin set, 32 GPS velocity fused alongside flow (`AUTO` with a u-blox GPS, since 2026-11-05). 64 GPS held off because the heading is not referenced to North (not yet aligned from flow vs GPS, no healthy compass, and not set from the GPS course at 5 m/s or more), 128 heading aligned from flow vs GPS velocity. **Bits 16–24 (`(v >> 16) & 511`)**: that heading offset in degrees (heading frame → North), valid with bit 128. **Bits 8–15 (`(v >> 8) & 255`)**: flow status as in `OPTICAL_FLOW` field 7 |
 
 GPS measurements come from the blackbox GPS frames: position relative to home,
 ground speed in cm/s, course in decidegrees.

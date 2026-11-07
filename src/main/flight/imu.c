@@ -89,6 +89,8 @@ static bool imuUpdated = false;
 float accAverage[XYZ_AXIS_COUNT];
 
 bool canUseGPSHeading = true;
+static bool gpsHeadingInitialized = false;  // yaw set from the GPS course
+static uint8_t headingResetCount = 0;       // times the yaw reference was replaced
 
 static float fc_acc;
 
@@ -468,6 +470,8 @@ static void imuCalculateEstimatedAttitude(timeUs_t currentTimeUs)
             // Reset our reference and reinitialize quaternion.  This will likely ideally happen more than once per flight, but for now,
             // shouldInitializeGPSHeading() returns true only once.
             imuComputeQuaternionFromRPY(&qP, attitude.values.roll, attitude.values.pitch, gpsSol.groundCourse);
+            gpsHeadingInitialized = true;
+            headingResetCount++;
 
             useCOG = false; // Don't use the COG when we first reinitialize.  Next time around though, yes.
         }
@@ -528,6 +532,31 @@ void imuUpdateAttitude(timeUs_t currentTimeUs)
     }
 }
 #endif // USE_ACC
+
+/*
+ * True when attitude.values.yaw is referenced to North: a healthy compass
+ * is in use, or the heading has been set from the GPS course over ground
+ * (which the gyro then holds).  Without either, the yaw is only relative
+ * to the power-on heading, and North/East GPS measurements must not be
+ * mixed with heading-frame ones (2026-11-05: flow and GPS velocity were
+ * 15-170 deg apart, and the GPS position hold spiralled).
+ */
+bool imuHeadingIsAbsolute(void)
+{
+#ifdef USE_MAG
+    if (sensors(SENSOR_MAG) && compassIsHealthy()) {
+        return true;
+    }
+#endif
+    return gpsHeadingInitialized;
+}
+
+// Incremented whenever the yaw is re-initialised to a new reference, so that
+// anything learned about the old heading frame can be discarded
+uint8_t imuGetHeadingResetCount(void)
+{
+    return headingResetCount;
+}
 
 bool shouldInitializeGPSHeading(void)
 {
