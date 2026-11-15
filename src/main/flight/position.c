@@ -1267,12 +1267,24 @@ static void estimatorUpdateXY(timeMs_t nowMs, float dt, float accelEast, float a
         posxy.kfNorth.x[1] *= decay;
     }
 
+    // A usable GPS on standby in AUTO (flow fresh, heading known) re-anchors
+    // the estimate as soon as it takes over, so the position is not
+    // unbounded dead reckoning either
+    const bool gpsAnchorReady =
+#ifdef USE_GPS
+        gpsFresh || (xySource == XY_SOURCE_AUTO && !posxy.gpsNoHeading && gpsIsUsable());
+#else
+        false;
+#endif
+
     // Hard dead-reckoning bound: without an absolute (GPS) anchor the position
     // is velocity-integrated only, so clamp its radius.  Never applied while
-    // GPS is anchoring - flying further than this from the arm point is then
-    // perfectly legitimate.
+    // GPS is anchoring or ready to - flying further than this from the arm
+    // point is then perfectly legitimate.  (2026-11-15: applied on every
+    // GPS -> flow handover in AUTO, it snapped the estimate back to 10 m
+    // from the arm point, 4-12 m jumps, one in position hold.)
     bool clamped = false;
-    if (!gpsFresh) {
+    if (!gpsAnchorReady) {
         const float px = kalmanGetPosition(&posxy.kfEast);
         const float py = kalmanGetPosition(&posxy.kfNorth);
         const float dist = sqrtf(px * px + py * py);
@@ -1477,10 +1489,16 @@ void positionUpdate(void)
                 }
                 else {
                     // First sample after a gap: restart the differentiator
-                    // instead of producing a step from a stale value
+                    // instead of producing a step from a stale value, seeded
+                    // with the Kalman vario.  Seeded with 0, altitude hold saw
+                    // the vario jump to zero when the LIDAR came back in a
+                    // descent and cut the collective (2026-11-15: 390 -> 118
+                    // at 1.2 m/s down), then surged as the 1 Hz filter caught
+                    // up.
+                    const float seed = alt.kfValid ? altKalmanGetVelocity(&alt.kfUp) / 100.0f : 0.0f;
                     agl.varioFilter.x1 = newAgl;
-                    agl.varioFilter.y1 = 0.0f;
-                    agl.aglVario = 0.0f;
+                    agl.varioFilter.y1 = seed;
+                    agl.aglVario = seed;
                 }
 
                 agl.aglAlt = newAgl;
