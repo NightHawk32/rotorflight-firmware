@@ -26,8 +26,7 @@
 
 /*
  * The values are logged (DEBUG_AUTOLAND[0]) and sent over MSP, so they are
- * fixed: new states are appended.  The takeoff states are reserved for the
- * auto takeoff, which will run in the same state machine (not implemented).
+ * fixed: new states are appended.
  */
 typedef enum {
     AUTOLAND_STATE_OFF = 0,         // not in control
@@ -38,10 +37,10 @@ typedef enum {
     AUTOLAND_STATE_TOUCHDOWN,       // collective ramps to autoland_ground_collective
     AUTOLAND_STATE_LANDED,          // on the ground, negative pitch, motor running
     AUTOLAND_STATE_MOTOR_OFF,       // throttle cut, negative pitch, disarm pending
-    // Reserved for the auto takeoff
-    AUTOLAND_STATE_GROUND_IDLE,
-    AUTOLAND_STATE_TAKEOFF_RAMP,
-    AUTOLAND_STATE_TAKEOFF_CLIMB,
+    // Auto takeoff
+    AUTOLAND_STATE_GROUND_IDLE,     // ALTHOLD on while landed: waiting for the stick push
+    AUTOLAND_STATE_TAKEOFF_RAMP,    // collective ramps up until liftoff
+    AUTOLAND_STATE_TAKEOFF_CLIMB,   // climbs to takeoff_altitude above the takeoff point
 } autolandState_e;
 
 // Position hold behaviour requested by the autoland
@@ -65,6 +64,9 @@ typedef enum {
 #define AL_STATUS_TD_TILT       (1 << 10)   // touchdown detector: level
 #define AL_STATUS_FALLING       (1 << 11)   // false touchdown / push-down too fast: reverted
 #define AL_STATUS_STICK         (1 << 12)   // pilot moving the target
+#define AL_STATUS_LANDED        (1 << 13)   // on the ground since arming: takeoff possible
+#define AL_STATUS_PUSHED        (1 << 14)   // takeoff: stick pushed, waiting for the return
+#define AL_STATUS_TO_ABORTED    (1 << 15)   // last takeoff ramp aborted
 
 typedef struct {
     uint8_t     state;          // autolandState_e
@@ -86,8 +88,10 @@ float autolandApplyCollective(float collective);
 autolandState_e getAutolandState(void);
 void autolandGetStatus(autolandStatus_t *status);
 
-// The autoland is flying or holding the model on the ground
+// The autoland (or takeoff) is flying or holding the model on the ground
 bool autolandIsActive(void);
+// In one of the takeoff states
+bool autolandIsTakeoff(void);
 // Altitude hold must be engaged (even with ALTHOLD off)
 bool autolandControlsAltitude(void);
 // Climb rate for altitude hold (m/s, negative = down)

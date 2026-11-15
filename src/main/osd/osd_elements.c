@@ -920,7 +920,7 @@ static void osdElementFlymode(osdElementParms_t *element)
     //  2. GPS RESCUE
     //  3. RESCUE
     //  4. HARD DECK (recovering)
-    //  5. AUTOLAND (LAND in the air, DOWN on the ground)
+    //  5. AUTOLAND (LAND in the air, DOWN on the ground, TKOF for the takeoff)
     //  5. ANGLE
     //  6. HORIZON
     //  7. ACRO
@@ -934,7 +934,8 @@ static void osdElementFlymode(osdElementParms_t *element)
     } else if (hardDeckIsIntervening()) {
         strcpy(element->buff, "DECK");
     } else if (autolandIsActive()) {
-        strcpy(element->buff, getAutolandState() >= AUTOLAND_STATE_LANDED ? "DOWN" : "LAND");
+        strcpy(element->buff, autolandIsTakeoff() ? "TKOF" :
+                              getAutolandState() >= AUTOLAND_STATE_LANDED ? "DOWN" : "LAND");
     } else if (FLIGHT_MODE(ANGLE_MODE)) {
         strcpy(element->buff, "ANGL");
     } else if (FLIGHT_MODE(HORIZON_MODE)) {

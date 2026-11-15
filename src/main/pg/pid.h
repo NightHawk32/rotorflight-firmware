@@ -143,6 +143,10 @@ typedef struct {
     int16_t     ground_collective;  // Collective held on the ground (-1000..1000)
     uint16_t    motor_off_delay;    // On the ground with the motor running, ds
     uint16_t    disarm_delay;       // Motor off until the disarm, ds
+    uint16_t    takeoff_altitude;   // Auto takeoff climbs this far above the takeoff point, cm
+    uint16_t    takeoff_climb_rate; // cm/s (twice that within ge_height)
+    uint16_t    takeoff_ramp_time;  // Collective ramp to hover - 10 %, ds
+    uint16_t    takeoff_max_extra;  // Abort when hover + this is reached without a liftoff
 } pidAutolandConfig_t;
 
 typedef struct pidProfile_s {

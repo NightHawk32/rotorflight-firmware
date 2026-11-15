@@ -16,13 +16,13 @@
  */
 
 /*
- * Auto land.
+ * Auto land and auto takeoff.
  *
- * One switch (box AUTOLAND).  The landing is built on altitude hold and
- * position hold: this module moves the altitude target, and takes the
- * collective over itself only where a closed altitude loop cannot work
- * (ground effect and the ground).  Both holds are engaged by the autoland,
- * whatever their own switches say.
+ * Both are built on altitude hold and position hold: this module moves the
+ * altitude target, and takes the collective over itself only where a
+ * closed altitude loop cannot work (ground effect and the ground).
+ *
+ * AUTO LAND, one switch (box AUTOLAND), engages both holds itself:
  *
  *   OFF ──switch on, LIDAR + GPS ready──> SETTLE        hold, >= autoland_settle_time,
  *                                           │            until vario and speed are small
@@ -68,6 +68,29 @@
  *
  * Rescue, GPS rescue and failsafe take priority in flight; the landing
  * restarts with SETTLE afterwards if the switch is still on.
+ *
+ * AUTO TAKEOFF, with the ALTHOLD switch.  The model counts as landed from
+ * arming until it lifts off.  ALTHOLD on while landed does not hold an
+ * altitude (a few cm up would lift the model or push it into the ground):
+ *
+ *   OFF ──ALTHOLD on, landed──> GROUND_IDLE    pilot collective, capped below half
+ *                                 │             the hover collective (no hop)
+ *                                 ▼ collective stick above +50 % and back below +25 %,
+ *                                 │ spooled up, LIDAR alive, altitude valid
+ *                               TAKEOFF_RAMP   cyclic level, collective ramps to hover - 10 %
+ *                                 │             in takeoff_ramp_time, then creeps up
+ *                                 ▼ liftoff (vario, accZ, AGL or altitude rise, 150 ms)
+ *                               TAKEOFF_CLIMB  altitude hold seeded with the liftoff
+ *                                 │             collective, climbs at takeoff_climb_rate
+ *                                 │             (twice that within autoland_ge_height)
+ *                                 ▼ takeoff_altitude above the takeoff point
+ *                               OFF            altitude hold (and position hold) holds
+ *
+ * The ramp aborts (back to GROUND_IDLE, new push needed) when the collective
+ * reaches hover + takeoff_max_extra without a liftoff, the model tilts more
+ * than 15 degrees, the stick goes fully down, ALTHOLD goes off, the rotor
+ * is no longer spooled up, or a rescue starts.  A manual liftoff (ALTHOLD
+ * off) also ends "landed".  Switching AUTOLAND on during the climb lands.
  */
 
 #include <stdbool.h>
@@ -83,6 +106,7 @@
 #include "drivers/time.h"
 
 #include "fc/core.h"
+#include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
 
 #include "flight/airborne.h"
@@ -122,6 +146,32 @@
 #define AL_GE_FALL_VARIO            -1.0f   // push-down sinks this fast: not near the ground
 #define AL_GE_LOST_AGL_FACTOR       2.0f    // AGL lost below this x ge height = ground effect
 #define AL_GE_REENTRY_MS            1000
+#define AL_GE_CREEP_RATE            20.0f   // collective per s below the push target
+
+#define TO_IDLE_CAP_FRACTION        0.5f    // GROUND_IDLE: collective below half the hover
+#define TO_IDLE_SLEW                500.0f  // collective per s, downwards
+#define TO_PUSH_STICK               0.50f   // collective stick deflection for the trigger
+#define TO_RETURN_STICK             0.25f
+#define TO_ABORT_STICK              -0.80f
+#define TO_RAMP_BELOW_HOVER         100.0f  // ramp target: hover - this
+#define TO_CREEP_RATE               50.0f   // collective per s after the ramp
+#define TO_LIFTOFF_VARIO            0.20f   // m/s
+#define TO_LIFTOFF_AGL_RISE         0.08f   // m
+#define TO_LIFTOFF_ALT_RISE         0.25f   // m, fused altitude
+#define TO_LIFTOFF_CONFIRM_MS       150
+#define TO_ABORT_COS_TILT           0.966f  // 15 deg
+#define TO_GE_CLIMB_FACTOR          2.0f    // climb faster through ground effect
+
+#define TO_GROUND_VARIO             0.30f   // m/s: "looks on the ground"
+#define TO_GROUND_AGL_MARGIN        0.20f   // m above the AGL seen on the ground
+#define TO_GROUND_ALT_MARGIN        0.50f   // m above the arm altitude (no AGL)
+#define TO_MANUAL_LIFTOFF_VARIO     0.30f   // m/s, while landed with ALTHOLD off
+#define TO_MANUAL_LIFTOFF_MS        300
+#define TO_MANUAL_LIFTOFF_AGL       0.30f   // m above the AGL seen on the ground
+#define TO_ARM_MAX_AGL              0.30f   // landed at arming: AGL below this (or no AGL and
+                                            // not moving), so a re-arm in the air never
+                                            // caps the collective
+#define AL_HOVER_LPF_TAU            1.0f    // s, learned hover filter in SETTLE
 
 
 typedef struct {
@@ -136,6 +186,11 @@ typedef struct {
     float       groundCollective;   // collective, -1000..1000
     uint32_t    motorOffDelayMs;
     uint32_t    disarmDelayMs;
+    float       takeoffAltitude;    // m above the takeoff point
+    float       takeoffClimbRate;   // m/s
+    uint32_t    takeoffRampMs;
+    float       takeoffMaxExtra;    // collective above hover
+    float       hoverCollective;    // althold_hover_collective
 
     // State
     autolandState_e state;
@@ -144,16 +199,33 @@ typedef struct {
     bool        refused;            // switched on while unavailable, until switched off
     bool        resumePending;      // yielded to a rescue with the switch on
     bool        available;
-    float       learnedHover;       // hover + I of altitude hold, end of SETTLE
+    float       learnedHover;       // collective flown in SETTLE (filtered, tilt removed)
     float       climbRate;          // m/s, for altitude hold
     float       collective;         // last collective output
-    float       rampFrom;           // collective when TOUCHDOWN started
+    float       rampFrom;           // collective when TOUCHDOWN/TAKEOFF_RAMP started
     float       geCollective;       // pushed collective in GROUND_EFFECT
-    timeMs_t    tdStartMs;          // touchdown conditions true since (0 = not)
+    timeMs_t    tdStartMs;          // touchdown/liftoff conditions true since (0 = not)
     timeMs_t    geBlockedUntilMs;
     bool        prevAglValid;
     float       prevAgl;
     uint16_t    flags;
+
+    // Takeoff
+    bool        armCheckPending;    // decide "landed" on the first armed cycle
+    bool        landed;             // on the ground since arming
+    bool        armAltSet;
+    float       armAlt;             // fused altitude on the ground after arming
+    bool        groundAglSet;
+    float       groundAgl;          // lowest AGL seen while landed
+    timeMs_t    manualLiftoffMs;
+    bool        stickWasLow;
+    bool        stickPushed;
+    bool        takeoffAborted;
+    float       idleCollective;     // GROUND_IDLE output
+    float       groundAlt;          // fused altitude of the takeoff point
+    bool        rampAglValid;
+    float       rampAgl;
+    float       climbHeight;        // m above the takeoff point
 } autolandData_t;
 
 static FAST_DATA_ZERO_INIT autolandData_t al;
@@ -228,6 +300,12 @@ static bool canEngage(void)
            !rescueInControl() && sensorsReady();
 }
 
+// Takeoff needs no GPS: position hold works on the flow low down
+static bool takeoffSensorsReady(void)
+{
+    return lidarReady() && isAltitudeValid();
+}
+
 static void setState(autolandState_e state)
 {
     al.state = state;
@@ -235,6 +313,7 @@ static void setState(autolandState_e state)
     al.tdStartMs = 0;
     al.rampFrom = al.collective;
     al.geCollective = al.collective;
+    al.idleCollective = al.collective;
 }
 
 static bool isFlyingState(autolandState_e state)
@@ -245,6 +324,11 @@ static bool isFlyingState(autolandState_e state)
 static bool isOnGroundState(autolandState_e state)
 {
     return state >= AUTOLAND_STATE_TOUCHDOWN && state <= AUTOLAND_STATE_MOTOR_OFF;
+}
+
+static bool isTakeoffGroundState(autolandState_e state)
+{
+    return state == AUTOLAND_STATE_GROUND_IDLE || state == AUTOLAND_STATE_TAKEOFF_RAMP;
 }
 
 // Fast or slow descent.  Without a valid AGL the fast rate is only used high
@@ -320,6 +404,203 @@ static void autolandOff(void)
     al.tdStartMs = 0;
 }
 
+/*
+ * Takeoff
+ */
+
+// Still on the ground?  Used before capping the collective, so a model that
+// was lifted off by hand (and not detected) is never pushed down in the air.
+static bool looksOnGround(void)
+{
+    if (fabsf(getVario()) > TO_GROUND_VARIO) {
+        return false;
+    }
+    if (aglValid() && al.groundAglSet) {
+        return aglHeight() < al.groundAgl + TO_GROUND_AGL_MARGIN;
+    }
+    return !al.armAltSet || !isAltitudeValid() ||
+           getAltitude() - al.armAlt < TO_GROUND_ALT_MARGIN;
+}
+
+// Ground references, and the end of "landed" after a manual liftoff
+static void updateLanded(void)
+{
+    if (al.armCheckPending) {
+        al.armCheckPending = false;
+        al.landed = aglValid() ? aglHeight() < TO_ARM_MAX_AGL : fabsf(getVario()) < TO_GROUND_VARIO;
+    }
+
+    if (!al.armAltSet && isAltitudeValid()) {
+        al.armAlt = getAltitude();
+        al.armAltSet = true;
+    }
+
+    if (!al.landed) {
+        return;
+    }
+
+    const bool valid = aglValid();
+    const float agl = aglHeight();
+
+    if (al.state == AUTOLAND_STATE_OFF || al.state == AUTOLAND_STATE_GROUND_IDLE) {
+        if (valid && (!al.groundAglSet || agl < al.groundAgl)) {
+            al.groundAgl = agl;
+            al.groundAglSet = true;
+        }
+
+        // Manual liftoff (ALTHOLD off, the collective passes through)
+        const bool aglHigh = valid && al.groundAglSet && agl > al.groundAgl + TO_MANUAL_LIFTOFF_AGL;
+        if (getVario() > TO_MANUAL_LIFTOFF_VARIO) {
+            if (al.manualLiftoffMs == 0) {
+                al.manualLiftoffMs = millis();
+            }
+        }
+        else {
+            al.manualLiftoffMs = 0;
+        }
+        if (aglHigh || (al.manualLiftoffMs != 0 &&
+                        cmp32(millis(), al.manualLiftoffMs) >= TO_MANUAL_LIFTOFF_MS)) {
+            al.landed = false;
+        }
+    }
+}
+
+static void abortTakeoff(void)
+{
+    al.takeoffAborted = true;
+    beeper(BEEPER_ACC_CALIBRATION_FAIL);
+    if (FLIGHT_MODE(ALTHOLD_MODE) && !rescueInControl()) {
+        setState(AUTOLAND_STATE_GROUND_IDLE);
+        al.stickWasLow = false;
+        al.stickPushed = false;
+    }
+    else {
+        autolandOff();
+    }
+}
+
+static void enterGroundIdle(void)
+{
+    setState(AUTOLAND_STATE_GROUND_IDLE);
+    al.stickWasLow = false;
+    al.stickPushed = false;
+}
+
+static void groundIdleUpdate(void)
+{
+    al.climbRate = 0;
+
+    if (!FLIGHT_MODE(ALTHOLD_MODE) || rescueInControl()) {
+        autolandOff();
+        return;
+    }
+
+    if (!al.landed) {
+        // Rising although capped (lifted by hand, gust): hold from here,
+        // starting from the collective actually applied
+        altHoldSetEngageCollective(al.collective);
+        autolandOff();
+        return;
+    }
+
+    // Push the collective stick above +50 % and back: the edge counts, so a
+    // stick left high at arming, or held high, never starts a takeoff
+    const float stick = getRcDeflection(FD_COLL);
+    if (stick < TO_RETURN_STICK) {
+        if (al.stickPushed) {
+            al.stickPushed = false;
+            if (isSpooledUp() && takeoffSensorsReady()) {
+                al.takeoffAborted = false;
+                al.groundAlt = getAltitude();
+                al.rampAglValid = aglValid();
+                al.rampAgl = aglHeight();
+                setState(AUTOLAND_STATE_TAKEOFF_RAMP);
+                return;
+            }
+            beeper(BEEPER_ACC_CALIBRATION_FAIL);
+        }
+        al.stickWasLow = true;
+    }
+    else if (stick > TO_PUSH_STICK && al.stickWasLow) {
+        al.stickPushed = true;
+    }
+}
+
+static bool liftoffDetected(void)
+{
+    const bool vario = getVario() > TO_LIFTOFF_VARIO;
+    const bool accel = airborneAccZLiftoff();
+    const bool agl = al.rampAglValid && aglValid() && aglHeight() > al.rampAgl + TO_LIFTOFF_AGL_RISE;
+    const bool alt = isAltitudeValid() && getAltitude() - al.groundAlt > TO_LIFTOFF_ALT_RISE;
+
+    if (vario || accel || agl || alt) {
+        if (al.tdStartMs == 0) {
+            al.tdStartMs = millis();
+        }
+        return cmp32(millis(), al.tdStartMs) >= TO_LIFTOFF_CONFIRM_MS;
+    }
+
+    al.tdStartMs = 0;
+    return false;
+}
+
+static void takeoffRampUpdate(void)
+{
+    al.climbRate = 0;
+
+    if (!FLIGHT_MODE(ALTHOLD_MODE) || rescueInControl() || !isSpooledUp() ||
+        getRcDeflection(FD_COLL) < TO_ABORT_STICK ||
+        getCosTiltAngle() < TO_ABORT_COS_TILT ||
+        al.collective >= al.hoverCollective + al.takeoffMaxExtra) {
+        abortTakeoff();
+        return;
+    }
+
+    if (liftoffDetected()) {
+        // Altitude hold starts from the collective that lifted the model:
+        // the real hover point of this flight
+        al.landed = false;
+        altHoldSetEngageCollective(al.collective);
+        al.climbHeight = 0;
+        setState(AUTOLAND_STATE_TAKEOFF_CLIMB);
+    }
+}
+
+static void takeoffClimbUpdate(void)
+{
+    if (!FLIGHT_MODE(ALTHOLD_MODE) || rescueInControl() || !isAltitudeValid()) {
+        // Altitude hold exit fade, or the rescue takes over
+        autolandOff();
+        return;
+    }
+
+    al.climbHeight = getAltitude() - al.groundAlt;
+    if (al.climbHeight >= al.takeoffAltitude) {
+        // Done: altitude hold latches the target where the model stops
+        autolandOff();
+        return;
+    }
+
+    al.climbRate = (al.climbHeight < al.geHeight) ?
+        al.takeoffClimbRate * TO_GE_CLIMB_FACTOR : al.takeoffClimbRate;
+}
+
+static float takeoffRampCollective(void)
+{
+    const float t = stateTimeMs() / 1000.0f;
+    const float base = al.hoverCollective - TO_RAMP_BELOW_HOVER;
+    const float rampTime = al.takeoffRampMs / 1000.0f;
+
+    if (al.rampFrom < base && rampTime > 0 && t < rampTime) {
+        return al.rampFrom + (base - al.rampFrom) * t / rampTime;
+    }
+
+    // Then creep up until the model lifts off (or the ramp aborts)
+    const float creepFrom = fmaxf(al.rampFrom, base);
+    const float creepTime = (al.rampFrom < base) ? t - rampTime : t;
+    return creepFrom + TO_CREEP_RATE * fmaxf(creepTime, 0.0f);
+}
+
 static void autolandDebug(void)
 {
     DEBUG(AUTOLAND, 0, al.state);
@@ -365,16 +646,24 @@ void autolandUpdate(void)
         al.learnedHover = 0;
         al.geBlockedUntilMs = 0;
         al.prevAglValid = false;
+        al.landed = false;
+        al.armCheckPending = true;
+        al.armAltSet = false;
+        al.groundAglSet = false;
+        al.manualLiftoffMs = 0;
+        al.takeoffAborted = false;
         autolandDebug();
         return;
     }
+
+    updateLanded();
 
     if (!switchOn) {
         al.refused = false;
         al.resumePending = false;
     }
 
-    // Pilot interrupt and rescue priority, while still flying
+    // Pilot interrupt and rescue priority, while landing in the air
     if (isFlyingState(al.state)) {
         if (!switchOn) {
             autolandOff();
@@ -385,12 +674,18 @@ void autolandUpdate(void)
         }
     }
 
+    // Switching AUTOLAND on during the takeoff climb lands
+    if (al.state == AUTOLAND_STATE_TAKEOFF_CLIMB && switchedOn && al.available) {
+        autolandOff();
+    }
+
     switch (al.state) {
         case AUTOLAND_STATE_OFF:
             if (switchOn && !al.refused && (switchedOn || al.resumePending) && !rescueInControl()) {
                 al.resumePending = false;
                 if (al.available) {
                     al.geBlockedUntilMs = 0;
+                    al.learnedHover = 0;
                     setState(AUTOLAND_STATE_SETTLE);
                 }
                 else {
@@ -398,18 +693,48 @@ void autolandUpdate(void)
                     beeper(BEEPER_ACC_CALIBRATION_FAIL);
                 }
             }
+            else if (al.landed && FLIGHT_MODE(ALTHOLD_MODE) && !rescueInControl()) {
+                if (looksOnGround()) {
+                    enterGroundIdle();
+                }
+                else {
+                    // ALTHOLD switched on in the air: a normal hold
+                    al.landed = false;
+                }
+            }
+            break;
+
+        case AUTOLAND_STATE_GROUND_IDLE:
+            groundIdleUpdate();
+            break;
+
+        case AUTOLAND_STATE_TAKEOFF_RAMP:
+            takeoffRampUpdate();
+            break;
+
+        case AUTOLAND_STATE_TAKEOFF_CLIMB:
+            takeoffClimbUpdate();
             break;
 
         case AUTOLAND_STATE_SETTLE: {
             al.climbRate = 0;
+            // Learn the hover collective from what is actually flown: the
+            // althold integrator may still be trimming (after an auto
+            // takeoff it starts from the collective in ground effect)
+            const float hover = al.collective / fmaxf(tiltFactor(), 0.5f);
+            if (al.learnedHover <= 0) {
+                al.learnedHover = hover;
+            }
+            else {
+                al.learnedHover += (hover - al.learnedHover) * pidGetDT() / AL_HOVER_LPF_TAU;
+            }
             const timeDelta_t t = stateTimeMs();
             const bool calm = fabsf(getVario()) < AL_SETTLE_VARIO &&
                               horizontalSpeed() < AL_SETTLE_SPEED;
             if ((t >= (timeDelta_t)al.settleTimeMs && calm) ||
                 t >= (timeDelta_t)(al.settleTimeMs + AL_SETTLE_MAX_EXTRA_MS)) {
-                // The hover collective of this flight, out of ground effect
-                // if the landing started high enough
-                al.learnedHover = altHoldGetHoverCollective();
+                // learnedHover: the hover collective of this flight, out of
+                // ground effect if the landing started high enough
                 setState(selectDescentState());
             }
             break;
@@ -475,7 +800,6 @@ void autolandUpdate(void)
             break;
 
         default:
-            // Takeoff states: not implemented yet
             autolandOff();
             break;
     }
@@ -488,6 +812,12 @@ void autolandUpdate(void)
         al.flags |= AL_STATUS_MOTOR_CUT;
     if (autolandControlsAltitude() && altHoldGetCommandedRate() != al.climbRate)
         al.flags |= AL_STATUS_STICK;
+    if (al.landed)
+        al.flags |= AL_STATUS_LANDED;
+    if (al.stickPushed)
+        al.flags |= AL_STATUS_PUSHED;
+    if (al.takeoffAborted)
+        al.flags |= AL_STATUS_TO_ABORTED;
 
     al.prevAglValid = valid;
     al.prevAgl = agl;
@@ -500,12 +830,31 @@ float autolandApplyCollective(float collective)
     float output = collective;
 
     switch (al.state) {
-        case AUTOLAND_STATE_GROUND_EFFECT: {
-            // Slew below the hover collective; never push up
-            const float floor = al.learnedHover * tiltFactor() - al.gePush;
-            if (al.geCollective > floor) {
-                al.geCollective = fmaxf(al.geCollective - al.gePushRate * pidGetDT(), floor);
+        case AUTOLAND_STATE_GROUND_IDLE: {
+            // The pilot's collective, capped so it cannot lift the model;
+            // after an aborted ramp it comes down at a limited rate
+            const float target = fminf(collective, al.hoverCollective * TO_IDLE_CAP_FRACTION);
+            if (target >= al.idleCollective) {
+                al.idleCollective = target;
             }
+            else {
+                al.idleCollective = fmaxf(target, al.idleCollective - TO_IDLE_SLEW * pidGetDT());
+            }
+            output = al.idleCollective;
+            break;
+        }
+
+        case AUTOLAND_STATE_TAKEOFF_RAMP:
+            output = takeoffRampCollective();
+            break;
+
+        case AUTOLAND_STATE_GROUND_EFFECT: {
+            // Slew below the hover collective, never up.  Below the push
+            // target keep creeping down slowly, so a strong cushion cannot
+            // hold the model up; the touchdown detector ends it.
+            const float target = al.learnedHover * tiltFactor() - al.gePush;
+            const float rate = (al.geCollective > target) ? al.gePushRate : AL_GE_CREEP_RATE;
+            al.geCollective = fmaxf(al.geCollective - rate * pidGetDT(), al.groundCollective);
             output = al.geCollective;
             break;
         }
@@ -549,9 +898,15 @@ bool autolandIsActive(void)
     return al.state != AUTOLAND_STATE_OFF;
 }
 
+bool autolandIsTakeoff(void)
+{
+    return al.state >= AUTOLAND_STATE_GROUND_IDLE && al.state <= AUTOLAND_STATE_TAKEOFF_CLIMB;
+}
+
 bool autolandControlsAltitude(void)
 {
-    return al.state >= AUTOLAND_STATE_SETTLE && al.state <= AUTOLAND_STATE_TOUCHDOWN;
+    return (al.state >= AUTOLAND_STATE_SETTLE && al.state <= AUTOLAND_STATE_TOUCHDOWN) ||
+           al.state == AUTOLAND_STATE_TAKEOFF_CLIMB;
 }
 
 float autolandGetClimbRate(void)
@@ -561,31 +916,36 @@ float autolandGetClimbRate(void)
 
 bool autolandOverridesCollective(void)
 {
-    return al.state >= AUTOLAND_STATE_GROUND_EFFECT && al.state <= AUTOLAND_STATE_MOTOR_OFF;
+    return (al.state >= AUTOLAND_STATE_GROUND_EFFECT && al.state <= AUTOLAND_STATE_MOTOR_OFF) ||
+           isTakeoffGroundState(al.state);
 }
 
 bool autolandSuppressesAltHold(void)
 {
-    return al.state == AUTOLAND_STATE_LANDED || al.state == AUTOLAND_STATE_MOTOR_OFF;
+    return al.state == AUTOLAND_STATE_LANDED || al.state == AUTOLAND_STATE_MOTOR_OFF ||
+           isTakeoffGroundState(al.state);
 }
 
 bool autolandWantsPosHold(void)
 {
-    return isFlyingState(al.state) || isOnGroundState(al.state);
+    return isFlyingState(al.state) || isOnGroundState(al.state) ||
+           al.state == AUTOLAND_STATE_TAKEOFF_RAMP || al.state == AUTOLAND_STATE_TAKEOFF_CLIMB;
 }
 
 autolandPosHoldMode_e autolandPosHoldMode(void)
 {
-    if (isOnGroundState(al.state))
+    if (isOnGroundState(al.state) || isTakeoffGroundState(al.state))
         return AUTOLAND_POSHOLD_GROUND;
     if (al.state == AUTOLAND_STATE_GROUND_EFFECT)
+        return AUTOLAND_POSHOLD_NEAR_GROUND;
+    if (al.state == AUTOLAND_STATE_TAKEOFF_CLIMB && al.climbHeight < al.geHeight)
         return AUTOLAND_POSHOLD_NEAR_GROUND;
     return AUTOLAND_POSHOLD_NORMAL;
 }
 
 bool autolandKeepsAirborne(void)
 {
-    return isFlyingState(al.state);
+    return isFlyingState(al.state) || al.state == AUTOLAND_STATE_TAKEOFF_CLIMB;
 }
 
 bool autolandIsMotorCut(void)
@@ -607,4 +967,9 @@ void INIT_CODE autolandInitProfile(const pidProfile_t *pidProfile)
     al.groundCollective = cfg->ground_collective;
     al.motorOffDelayMs  = cfg->motor_off_delay * 100;   // ds
     al.disarmDelayMs    = cfg->disarm_delay * 100;      // ds
+    al.takeoffAltitude  = cfg->takeoff_altitude / 100.0f;   // cm
+    al.takeoffClimbRate = cfg->takeoff_climb_rate / 100.0f; // cm/s
+    al.takeoffRampMs    = cfg->takeoff_ramp_time * 100;     // ds
+    al.takeoffMaxExtra  = cfg->takeoff_max_extra;
+    al.hoverCollective  = pidProfile->althold.hover_collective;
 }

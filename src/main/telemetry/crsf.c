@@ -490,7 +490,8 @@ static void crsfFlightModeInfo(char *buf)
     } else if (hardDeckIsIntervening()) {
         flightMode = "HARDDECK";
     } else if (autolandIsActive()) {
-        flightMode = getAutolandState() >= AUTOLAND_STATE_LANDED ? "LANDED" : "AUTOLAND";
+        flightMode = autolandIsTakeoff() ? "TAKEOFF" :
+                     getAutolandState() >= AUTOLAND_STATE_LANDED ? "LANDED" : "AUTOLAND";
     } else if (FLIGHT_MODE(HORIZON_MODE)) {
         flightMode = "HORIZON";
     } else if (FLIGHT_MODE(ANGLE_MODE)) {

@@ -1842,6 +1842,10 @@ static bool blackboxWriteSysinfo(void)
                                                                             currentPidProfile->autoland.ground_collective,
                                                                             currentPidProfile->autoland.motor_off_delay,
                                                                             currentPidProfile->autoland.disarm_delay);
+        BLACKBOX_PRINT_HEADER_LINE("takeoff", "%d,%d,%d,%d",                currentPidProfile->autoland.takeoff_altitude,
+                                                                            currentPidProfile->autoland.takeoff_climb_rate,
+                                                                            currentPidProfile->autoland.takeoff_ramp_time,
+                                                                            currentPidProfile->autoland.takeoff_max_extra);
         BLACKBOX_PRINT_HEADER_LINE("position_source", "%d,%d",              positionConfig()->alt_source,
                                                                             positionConfig()->xy_source);
         BLACKBOX_PRINT_HEADER_LINE("position_lpf", "%d,%d,%d,%d,%d",        positionConfig()->baro_alt_lpf,

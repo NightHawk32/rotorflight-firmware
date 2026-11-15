@@ -258,14 +258,14 @@ See [HardDeck.md §3.4](HardDeck.md#34-mode-and-debug).
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| 0 | State | 0 off, 1 settle, 2 descend, 3 final, 4 ground effect, 5 touchdown, 6 landed, 7 motor off |
+| 0 | State | 0 off, 1 settle, 2 descend, 3 final, 4 ground effect, 5 touchdown, 6 landed, 7 motor off, 8 takeoff ground idle, 9 takeoff ramp, 10 takeoff climb |
 | 1 | AGL | cm, −1 when the AGL is invalid |
 | 2 | Fused vario | cm/s |
 | 3 | Collective | 0–1000 units, below 0 on the ground. The althold output, or the autoland's own in states 4–7 |
-| 4 | Learned hover | Althold hover + I at the end of SETTLE (collective units) |
+| 4 | Learned hover | Collective flown in SETTLE, low-pass 1 s, tilt removed (collective units) |
 | 5 | Commanded climb rate | cm/s (negative = down) |
 | 6 | Time in state | ms, capped at 60000 |
-| 7 | Flags | 1 switch on, 2 available, 4 refused, 8 LIDAR alive, 16 GPS ready, 32 AGL valid, 64 motor cut, 128 yielded to rescue, 256/512/1024 touchdown detector: not sinking / collective below hover − 40 / level, 2048 reverted to FINAL (sank too fast), 4096 pilot stick changes the rate |
+| 7 | Flags | 1 switch on, 2 available, 4 refused, 8 LIDAR alive, 16 GPS ready, 32 AGL valid, 64 motor cut, 128 yielded to rescue, 256/512/1024 touchdown detector: not sinking / collective below hover − 40 / level, 2048 reverted to FINAL (sank too fast), 4096 pilot stick changes the rate, 8192 landed since arming (takeoff possible), 16384 takeoff stick pushed (waiting for the return), 32768 last takeoff ramp aborted |
 
 Use `ALTHOLD` instead to tune the descent tracking; flag 64 there marks
 cycles where the autoland drives the target.
@@ -289,6 +289,7 @@ Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
 | `harddeck_predict` | `harddeck_recovery_accel`, `_reaction_time`, `_sigma_factor`, `_use_agl` |
 | `autoland_descent` | `autoland_settle_time`, `_descent_rate`, `_final_rate`, `_slow_height`, `_ge_height` |
 | `autoland_ground` | `autoland_ge_push`, `_ge_push_rate`, `_ground_collective`, `_motor_off_delay`, `_disarm_delay` |
+| `takeoff` | `takeoff_altitude`, `_climb_rate`, `_ramp_time`, `_max_extra` |
 | `rescue_mode` | `rescue_mode`, `rescue_flip_mode` |
 | `rescue_gain` | `rescue_level_gain`, `rescue_flip_gain` |
 | `rescue_time` | `rescue_pull_up_time`, `_climb_time`, `_flip_time`, `_exit_time` |

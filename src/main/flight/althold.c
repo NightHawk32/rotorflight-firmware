@@ -265,10 +265,16 @@ void altHoldUpdate(void)
         rate = sign * frac * frac * ah.maxClimbRate;
     }
     if (ah.landing) {
-        // Landing: the stick may slow, stop or reverse the descent, but not
-        // make it faster than the autoland's rate
-        const float landRate = autolandGetClimbRate();
-        rate = ah.stickActive ? fmaxf(rate, landRate) : landRate;
+        const float autoRate = autolandGetClimbRate();
+        if (autoRate > 0) {
+            // Takeoff climb: the stick takes over while it is moved
+            rate = ah.stickActive ? rate : autoRate;
+        }
+        else {
+            // Landing: the stick may slow, stop or reverse the descent, but
+            // not make it faster than the autoland's rate
+            rate = ah.stickActive ? fmaxf(rate, autoRate) : autoRate;
+        }
     }
     ah.stickRate = rate;
 
@@ -444,6 +450,16 @@ float altHoldGetHoverCollective(void)
 float altHoldGetCommandedRate(void)
 {
     return ah.stickRate;
+}
+
+void altHoldSetEngageCollective(float collective)
+{
+    ah.exitFrom = collective;
+}
+
+bool altHoldIsEngaged(void)
+{
+    return ah.active && altHoldEngaged();
 }
 
 void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float *output)

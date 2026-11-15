@@ -1434,7 +1434,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         break;
 
     case MSP2_GET_HOLD_PROFILE:
-        sbufWriteU8(dst, 2);    // payload version
+        sbufWriteU8(dst, 3);    // payload version
         sbufWriteU16(dst, currentPidProfile->althold.alt_p_gain);
         sbufWriteU16(dst, currentPidProfile->althold.alt_i_gain);
         sbufWriteU16(dst, currentPidProfile->althold.alt_d_gain);
@@ -1466,6 +1466,11 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         sbufWriteU16(dst, (uint16_t)currentPidProfile->autoland.ground_collective);
         sbufWriteU16(dst, currentPidProfile->autoland.motor_off_delay);
         sbufWriteU16(dst, currentPidProfile->autoland.disarm_delay);
+        // Auto takeoff (payload version 3)
+        sbufWriteU16(dst, currentPidProfile->autoland.takeoff_altitude);
+        sbufWriteU16(dst, currentPidProfile->autoland.takeoff_climb_rate);
+        sbufWriteU16(dst, currentPidProfile->autoland.takeoff_ramp_time);
+        sbufWriteU16(dst, currentPidProfile->autoland.takeoff_max_extra);
         break;
 
     case MSP2_GET_POSITION_STATUS: {
@@ -4687,7 +4692,7 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
 
     case MSP2_SET_HOLD_PROFILE: {
         const uint8_t version = sbufReadU8(src);
-        if (version != 1 && version != 2) {
+        if (version < 1 || version > 3) {
             return MSP_RESULT_ERROR;
         }
         currentPidProfile->althold.alt_p_gain = sbufReadU16(src);
@@ -4721,6 +4726,12 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
             currentPidProfile->autoland.ground_collective = constrain((int16_t)sbufReadU16(src), -500, 0);
             currentPidProfile->autoland.motor_off_delay = sbufReadU16(src);
             currentPidProfile->autoland.disarm_delay = sbufReadU16(src);
+        }
+        if (version >= 3) {
+            currentPidProfile->autoland.takeoff_altitude = sbufReadU16(src);
+            currentPidProfile->autoland.takeoff_climb_rate = sbufReadU16(src);
+            currentPidProfile->autoland.takeoff_ramp_time = sbufReadU16(src);
+            currentPidProfile->autoland.takeoff_max_extra = sbufReadU16(src);
         }
         /* Load new values */
         altHoldInitProfile(currentPidProfile);

@@ -16,9 +16,10 @@
  */
 
 /*
- * Closed-loop tests for the autoland: autoland.c and althold.c fly a
- * vertical point-mass helicopter with ground contact, ground effect and a
- * LIDAR that can be made invalid near the ground or see an obstacle.
+ * Closed-loop tests for the auto land and auto takeoff: autoland.c and
+ * althold.c fly a vertical point-mass helicopter with ground contact,
+ * ground effect and a LIDAR that can be made invalid near the ground or
+ * see an obstacle.
  */
 
 #include <stdint.h>
@@ -69,6 +70,9 @@ static struct {
     int         beeps;
     float       touchdownSpeed;
     bool        touched;
+    bool        notSpooled;
+    bool        tiedDown;       // skids held on the ground
+    float       accZ;           // g, body Z (1 at rest)
 } sim;
 
 static pidProfile_t profile;
@@ -88,7 +92,8 @@ float getCosTiltAngle(void) { return 1.0f; }
 
 bool sensors(uint32_t) { return true; }
 bool rangefinderIsHealthy(void) { return sim.lidarAlive; }
-bool isSpooledUp(void) { return ARMING_FLAG(ARMED); }
+bool isSpooledUp(void) { return ARMING_FLAG(ARMED) && !sim.notSpooled; }
+bool airborneAccZLiftoff(void) { return sim.accZ > 1.15f; }
 bool isAirborne(void) { return sim.h > 0.01f; }
 int getRescueState(void) { return sim.rescue ? 1 : RESCUE_STATE_OFF; }
 
@@ -137,14 +142,17 @@ static void simStep(void)
     coll = autolandApplyCollective(coll);
     sim.coll = coll;
 
-    if (ARMING_FLAG(ARMED) && !autolandIsMotorCut()) {
+    float accel = -GRAVITY;
+    if (ARMING_FLAG(ARMED) && !autolandIsMotorCut() && isSpooledUp()) {
         const float ge = 1.0f + GE_GAIN * fmaxf(0.0f, 1.0f - sim.h / GE_HEIGHT);
-        const float accel = GRAVITY * fmaxf(coll, 0.0f) / TRUE_HOVER * ge - GRAVITY - 0.5f * sim.v;
-        sim.v += accel * SIM_DT;
+        accel = GRAVITY * fmaxf(coll, 0.0f) / TRUE_HOVER * ge - GRAVITY - 0.5f * sim.v;
     }
-    else {
-        sim.v -= GRAVITY * SIM_DT;
+    if (sim.tiedDown && sim.h <= 0) {
+        accel = fminf(accel, 0.0f);
     }
+    sim.v += accel * SIM_DT;
+    // Accelerometer: the ground reaction cancels a downward net force
+    sim.accZ = (sim.h > 0 || accel > 0) ? 1.0f + accel / GRAVITY : 1.0f;
     sim.h += sim.v * SIM_DT;
     if (sim.h <= 0) {
         if (!sim.touched && sim.v < 0) {
@@ -208,11 +216,15 @@ protected:
         profile.autoland.final_rate = 25;
         profile.autoland.slow_height = 150;
         profile.autoland.ge_height = 40;
-        profile.autoland.ge_push = 80;
+        profile.autoland.ge_push = 30;
         profile.autoland.ge_push_rate = 150;
         profile.autoland.ground_collective = -100;
         profile.autoland.motor_off_delay = 20;
         profile.autoland.disarm_delay = 120;
+        profile.autoland.takeoff_altitude = 150;
+        profile.autoland.takeoff_climb_rate = 50;
+        profile.autoland.takeoff_ramp_time = 15;
+        profile.autoland.takeoff_max_extra = 150;
 
         altHoldInitProfile(&profile);
         autolandInitProfile(&profile);
@@ -236,6 +248,7 @@ protected:
     {
         sim.h = h;
         sim.v = 0;
+        sim.touched = false;    // record the next ground contact
         ENABLE_FLIGHT_MODE(ALTHOLD_MODE);
         simRun(5.0f);
     }
@@ -270,7 +283,7 @@ TEST_F(AutolandTest, FullSequenceWithLidar)
 
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_TOUCHDOWN, 5.0f), 0);
     EXPECT_TRUE(sim.touched);
-    EXPECT_LT(sim.touchdownSpeed, 0.6f);
+    EXPECT_LT(sim.touchdownSpeed, 0.5f);
     EXPECT_EQ(0.0f, sim.h);
 
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_LANDED, 2.0f), 0);
@@ -305,7 +318,7 @@ TEST_F(AutolandTest, LidarInvalidNearGround)
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_GROUND_EFFECT, 30.0f), 0);
     EXPECT_LT(sim.h, 0.3f);
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_MOTOR_OFF, 10.0f), 0);
-    EXPECT_LT(sim.touchdownSpeed, 0.6f);
+    EXPECT_LT(sim.touchdownSpeed, 0.5f);
 }
 
 TEST_F(AutolandTest, NoGroundEffectPhaseStillLands)
@@ -318,7 +331,7 @@ TEST_F(AutolandTest, NoGroundEffectPhaseStillLands)
 
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_TOUCHDOWN, 40.0f), 0);
     EXPECT_EQ(0.0f, sim.h);
-    EXPECT_LT(sim.touchdownSpeed, 0.6f);
+    EXPECT_LT(sim.touchdownSpeed, 0.5f);
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_MOTOR_OFF, 5.0f), 0);
 }
 
@@ -346,7 +359,7 @@ TEST_F(AutolandTest, ObstacleUnderLidarRevertsPush)
     // Obstacle gone: lands normally
     sim.obstacleAgl = 0;
     EXPECT_GE(simRunUntil(AUTOLAND_STATE_MOTOR_OFF, 30.0f), 0);
-    EXPECT_LT(sim.touchdownSpeed, 0.6f);
+    EXPECT_LT(sim.touchdownSpeed, 0.5f);
 }
 
 TEST_F(AutolandTest, RefusedWithoutGpsUntilToggled)
@@ -494,4 +507,166 @@ TEST_F(AutolandTest, StickUpPausesDescent)
     simRun(2.0f);
     EXPECT_GT(sim.v, 0.0f);
     EXPECT_EQ(AUTOLAND_STATE_DESCEND, getAutolandState());
+}
+
+// ---- Auto takeoff ----
+
+class TakeoffTest : public AutolandTest {
+protected:
+    void SetUp() override
+    {
+        AutolandTest::SetUp();
+        // Back on the ground, freshly armed, stick low, ALTHOLD on
+        DISABLE_ARMING_FLAG(ARMED);
+        sim.h = 0;
+        sim.v = 0;
+        sim.stick = -0.2f;
+        simRun(0.01f);
+        ENABLE_ARMING_FLAG(ARMED);
+        ENABLE_FLIGHT_MODE(ALTHOLD_MODE);
+        simRun(1.0f);
+    }
+
+    void pushStick(void)
+    {
+        sim.stick = 0.6f;
+        simRun(0.3f);
+        sim.stick = 0.1f;
+        simRun(0.01f);
+    }
+};
+
+TEST_F(TakeoffTest, IdleCapsCollectiveOnTheGround)
+{
+    EXPECT_EQ(AUTOLAND_STATE_GROUND_IDLE, getAutolandState());
+    sim.stick = 0.6f;               // would lift it without the cap
+    simRun(0.2f);
+    EXPECT_LE(sim.coll, 175.0f);
+    EXPECT_EQ(0.0f, sim.h);
+    EXPECT_EQ(AUTOLAND_STATE_GROUND_IDLE, getAutolandState());
+}
+
+TEST_F(TakeoffTest, FullTakeoffToTakeoffAltitude)
+{
+    pushStick();
+    EXPECT_EQ(AUTOLAND_STATE_TAKEOFF_RAMP, getAutolandState());
+
+    const float tLiftoff = simRunUntil(AUTOLAND_STATE_TAKEOFF_CLIMB, 6.0f);
+    EXPECT_GE(tLiftoff, 0.5f);
+    EXPECT_LT(sim.h, 0.15f);        // detected right after leaving the ground
+
+    EXPECT_GE(simRunUntil(AUTOLAND_STATE_OFF, 10.0f), 0);
+    EXPECT_NEAR(1.5f, sim.h, 0.15f);
+
+    // Altitude hold holds it there, from the liftoff collective
+    simRun(5.0f);
+    EXPECT_NEAR(1.5f, sim.h, 0.3f);
+    EXPECT_NEAR(0.0f, sim.v, 0.05f);
+    EXPECT_NEAR(TRUE_HOVER, sim.coll, 15.0f);
+    EXPECT_EQ(AUTOLAND_STATE_OFF, getAutolandState());
+}
+
+TEST_F(TakeoffTest, StickHighAtArmingDoesNotLaunch)
+{
+    DISABLE_ARMING_FLAG(ARMED);
+    simRun(0.01f);
+    sim.stick = 0.6f;
+    ENABLE_ARMING_FLAG(ARMED);
+    simRun(1.0f);
+    sim.stick = 0.1f;
+    simRun(2.0f);
+    EXPECT_EQ(AUTOLAND_STATE_GROUND_IDLE, getAutolandState());
+    EXPECT_EQ(0.0f, sim.h);
+}
+
+TEST_F(TakeoffTest, NotSpooledUpRefuses)
+{
+    sim.notSpooled = true;
+    const int beeps = sim.beeps;
+    pushStick();
+    EXPECT_EQ(AUTOLAND_STATE_GROUND_IDLE, getAutolandState());
+    EXPECT_EQ(beeps + 1, sim.beeps);
+}
+
+TEST_F(TakeoffTest, AbortsWithoutLiftoff)
+{
+    sim.tiedDown = true;
+    pushStick();
+    EXPECT_GE(simRunUntil(AUTOLAND_STATE_GROUND_IDLE, 8.0f), 0);
+    EXPECT_GE(sim.coll, 400.0f);    // reached hover + max extra
+    simRun(1.0f);
+    EXPECT_LE(sim.coll, 175.0f);    // and comes back down
+    EXPECT_EQ(0.0f, sim.h);
+    EXPECT_TRUE(autolandIsActive());
+
+    // A new push tries again
+    sim.tiedDown = false;
+    pushStick();
+    EXPECT_GE(simRunUntil(AUTOLAND_STATE_TAKEOFF_CLIMB, 6.0f), 0);
+}
+
+TEST_F(TakeoffTest, StickDownAborts)
+{
+    pushStick();
+    simRun(0.5f);
+    sim.stick = -1.0f;
+    simRun(0.01f);
+    EXPECT_EQ(AUTOLAND_STATE_GROUND_IDLE, getAutolandState());
+}
+
+TEST_F(TakeoffTest, AltholdOffDuringRampHandsBack)
+{
+    pushStick();
+    simRun(0.5f);
+    DISABLE_FLIGHT_MODE(ALTHOLD_MODE);
+    simRun(0.01f);
+    EXPECT_EQ(AUTOLAND_STATE_OFF, getAutolandState());
+    EXPECT_NEAR(100.0f, sim.coll, 1.0f);    // the pilot collective
+}
+
+TEST_F(TakeoffTest, ManualLiftoffThenAltholdHolds)
+{
+    DISABLE_FLIGHT_MODE(ALTHOLD_MODE);
+    simRun(0.1f);
+    EXPECT_EQ(AUTOLAND_STATE_OFF, getAutolandState());
+
+    // Pilot lifts off by hand and climbs
+    sim.stick = 0.5f;
+    simRun(1.5f);
+    sim.stick = TRUE_HOVER / 1000.0f;
+    simRun(0.5f);
+    EXPECT_GT(sim.h, 0.5f);
+
+    ENABLE_FLIGHT_MODE(ALTHOLD_MODE);
+    simRun(0.01f);
+    EXPECT_EQ(AUTOLAND_STATE_OFF, getAutolandState());   // no ground idle in the air
+    const float h = sim.h;
+    simRun(4.0f);
+    EXPECT_NEAR(h, sim.h, 0.4f);
+    EXPECT_GT(sim.coll, 300.0f);
+}
+
+TEST_F(TakeoffTest, AutolandDuringClimbLands)
+{
+    pushStick();
+    EXPECT_GE(simRunUntil(AUTOLAND_STATE_TAKEOFF_CLIMB, 6.0f), 0);
+    simRun(1.0f);
+    autolandSwitch(true);
+    simRun(0.01f);
+    EXPECT_EQ(AUTOLAND_STATE_SETTLE, getAutolandState());
+}
+
+TEST_F(TakeoffTest, TakeoffHoverLandCycle)
+{
+    pushStick();
+    EXPECT_GE(simRunUntil(AUTOLAND_STATE_OFF, 15.0f), 0);
+    simRun(3.0f);
+    sim.touched = false;
+
+    autolandSwitch(true);
+    EXPECT_GE(simRunUntil(AUTOLAND_STATE_MOTOR_OFF, 40.0f), 0);
+    EXPECT_TRUE(sim.touched);
+    EXPECT_LT(sim.touchdownSpeed, 0.5f);
+    simRun(12.5f);
+    EXPECT_FALSE(ARMING_FLAG(ARMED));
 }

@@ -38,7 +38,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
     .filter_process_denom = FILTER_PROCESS_DENOM_DEFAULT,
 );
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 4);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 5);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -158,11 +158,15 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .autoland.final_rate = 25,          // 25 cm/s below the slow height
         .autoland.slow_height = 150,        // 1.5 m AGL
         .autoland.ge_height = 40,           // push down below 40 cm AGL
-        .autoland.ge_push = 80,             // to learned hover - 80
+        .autoland.ge_push = 30,             // to learned hover - 30, then creeping down
         .autoland.ge_push_rate = 150,       // 150 collective per s
         .autoland.ground_collective = -100, // slightly negative pitch on the ground
         .autoland.motor_off_delay = 20,     // 2 s on the ground, then motor off
         .autoland.disarm_delay = 120,       // disarm 12 s after the motor cut
+        .autoland.takeoff_altitude = 150,   // climb to 1.5 m above the takeoff point
+        .autoland.takeoff_climb_rate = 50,  // 50 cm/s
+        .autoland.takeoff_ramp_time = 15,   // 1.5 s to hover - 10 %
+        .autoland.takeoff_max_extra = 150,  // abort at hover + 15 %
     );
 }
 

@@ -37,6 +37,10 @@ void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float
 float altHoldGetHoverCollective(void);
 // Climb rate fed forward this cycle (stick and/or autoland), m/s
 float altHoldGetCommandedRate(void);
+// Collective to start from on the next engage (auto takeoff liftoff)
+void altHoldSetEngageCollective(float collective);
+// Engaged and flying the collective this cycle
+bool altHoldIsEngaged(void);
 
 void altHoldUpdate(void);
 float altHoldApply(float collective);

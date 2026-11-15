@@ -36,6 +36,7 @@
 #include "flight/position.h"
 #include "flight/governor.h"
 #include "flight/autoland.h"
+#include "flight/althold.h"
 
 #include "fc/runtime_config.h"
 #include "fc/rc.h"
@@ -143,7 +144,8 @@ static bool liftoff(void)
         (
             isOverThreshold(airborne.liftoffThreshold) ||
             getCosTiltAngle() < LIFTOFF_COS_ANGLE_THRESHOLD ||
-            FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE)
+            FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE) ||
+            autolandKeepsAirborne()
         )
     );
 }
@@ -157,7 +159,8 @@ static bool touchdown(void)
             isOverThreshold(airborne.landingThreshold) ||
             getCosTiltAngle() < LANDING_COS_ANGLE_THRESHOLD ||
             FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE) ||
-            autolandKeepsAirborne()
+            autolandKeepsAirborne() ||
+            altHoldIsEngaged()
         )
     );
 }
@@ -219,7 +222,8 @@ static bool liftoffByStickResponse(void)
             responding ||
             liftingOff ||
             getCosTiltAngle() < LIFTOFF_COS_ANGLE_THRESHOLD ||
-            FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE)
+            FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE) ||
+            autolandKeepsAirborne()
         )
     );
 }
@@ -283,6 +287,15 @@ uint32_t getLiftoffAgeMs(void)
     if (airborne.state != AIRBORNE_STATE_AIRBORNE || airborne.airborneTime == 0)
         return 0;
     return cmp32(millis(), airborne.airborneTime);
+}
+
+bool airborneAccZLiftoff(void)
+{
+#ifdef USE_ACC
+    return sensors(SENSOR_ACC) && airborne.accZFiltered > airborne.accZThreshold;
+#else
+    return false;
+#endif
 }
 
 bool isHandsOn(void)

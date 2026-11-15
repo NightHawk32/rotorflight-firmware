@@ -1276,6 +1276,10 @@ const clivalue_t valueTable[] = {
     { "autoland_ground_collective", VAR_INT16  | PROFILE_VALUE, .config.minmax = { -500, 0 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.ground_collective) },
     { "autoland_motor_off_delay",   VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.motor_off_delay) },
     { "autoland_disarm_delay",      VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 600 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.disarm_delay) },
+    { "takeoff_altitude",           VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 30, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.takeoff_altitude) },
+    { "takeoff_climb_rate",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.takeoff_climb_rate) },
+    { "takeoff_ramp_time",          VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.takeoff_ramp_time) },
+    { "takeoff_max_extra",          VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 500 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.takeoff_max_extra) },
 
 #ifdef USE_OPTICAL_FLOW
     { "poshold_pos_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.pos_p_gain) },
