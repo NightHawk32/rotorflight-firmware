@@ -88,6 +88,7 @@ typedef enum {
     GPS_RESCUE_MODE_BIT  = 6,
     POSHOLD_MODE_BIT     = 7,
     HARDDECK_MODE_BIT    = 8,
+    AUTOLAND_MODE_BIT    = 9,
 } flightModeBits_e;
 
 typedef enum {
@@ -100,6 +101,7 @@ typedef enum {
     GPS_RESCUE_MODE      = BIT(GPS_RESCUE_MODE_BIT),
     POSHOLD_MODE         = BIT(POSHOLD_MODE_BIT),
     HARDDECK_MODE        = BIT(HARDDECK_MODE_BIT),
+    AUTOLAND_MODE        = BIT(AUTOLAND_MODE_BIT),
 } flightModeFlags_e;
 
 extern uint16_t flightModeFlags;

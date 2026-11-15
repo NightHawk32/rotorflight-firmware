@@ -78,6 +78,7 @@ typedef enum {
     // what drives their flight-mode flags in processRxModes().
     BOXPOSHOLD,
     BOXHARDDECK,
+    BOXAUTOLAND,
 
     CHECKBOX_ITEM_COUNT,
 

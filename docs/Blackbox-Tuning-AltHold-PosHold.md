@@ -196,7 +196,7 @@ if field 4 wanders on flat ground, lower it.
 | 4 | I term ×10 | Same units. Starts at (pilot collective − `althold_hover_collective`) on engage |
 | 5 | Velocity command | cm/s |
 | 6 | Output collective | 0–1000. When not engaged: the pass-through collective |
-| 7 | Flags | 1 engaged, 2 using AGL, 4 altitude source valid, 8 pilot moving target with the stick, 16 mode on but yielding to rescue/failsafe, 32 switched off, hold collective fading into the stick (`althold_exit_time`) |
+| 7 | Flags | 1 engaged, 2 using AGL, 4 altitude source valid, 8 pilot moving target with the stick, 16 mode on but yielding to rescue/failsafe, 32 switched off, hold collective fading into the stick (`althold_exit_time`), 64 target driven by the autoland |
 
 The output is `(althold_hover_collective + climb-rate term + I) × cos²(tilt)`,
 clamped to 0–1000. The velocity command is
@@ -254,6 +254,22 @@ ground speed in cm/s, course in decidegrees.
 
 See [HardDeck.md §3.4](HardDeck.md#34-mode-and-debug).
 
+### `AUTOLAND`
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| 0 | State | 0 off, 1 settle, 2 descend, 3 final, 4 ground effect, 5 touchdown, 6 landed, 7 motor off |
+| 1 | AGL | cm, −1 when the AGL is invalid |
+| 2 | Fused vario | cm/s |
+| 3 | Collective | 0–1000 units, below 0 on the ground. The althold output, or the autoland's own in states 4–7 |
+| 4 | Learned hover | Althold hover + I at the end of SETTLE (collective units) |
+| 5 | Commanded climb rate | cm/s (negative = down) |
+| 6 | Time in state | ms, capped at 60000 |
+| 7 | Flags | 1 switch on, 2 available, 4 refused, 8 LIDAR alive, 16 GPS ready, 32 AGL valid, 64 motor cut, 128 yielded to rescue, 256/512/1024 touchdown detector: not sinking / collective below hover − 40 / level, 2048 reverted to FINAL (sank too fast), 4096 pilot stick changes the rate |
+
+Use `ALTHOLD` instead to tune the descent tracking; flag 64 there marks
+cycles where the autoland drives the target.
+
 ### `ALTITUDE` (existing mode)
 
 Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
@@ -271,6 +287,8 @@ Fields 0/1 are the general altitude and vario (the Kalman filter, or AGL in
 | `poshold_limits` | `poshold_max_horiz_speed`, `poshold_max_tilt_angle`, `poshold_stick_deadband` |
 | `harddeck_altitude` | `harddeck_altitude`, `_arm_margin`, `_recovery_margin`, `_release_altitude` |
 | `harddeck_predict` | `harddeck_recovery_accel`, `_reaction_time`, `_sigma_factor`, `_use_agl` |
+| `autoland_descent` | `autoland_settle_time`, `_descent_rate`, `_final_rate`, `_slow_height`, `_ge_height` |
+| `autoland_ground` | `autoland_ge_push`, `_ge_push_rate`, `_ground_collective`, `_motor_off_delay`, `_disarm_delay` |
 | `rescue_mode` | `rescue_mode`, `rescue_flip_mode` |
 | `rescue_gain` | `rescue_level_gain`, `rescue_flip_gain` |
 | `rescue_time` | `rescue_pull_up_time`, `_climb_time`, `_flip_time`, `_exit_time` |

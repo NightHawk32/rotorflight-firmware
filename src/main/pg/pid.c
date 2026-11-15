@@ -38,7 +38,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
     .filter_process_denom = FILTER_PROCESS_DENOM_DEFAULT,
 );
 
-PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 3);
+PG_REGISTER_ARRAY_WITH_RESET_FN(pidProfile_t, PID_PROFILE_COUNT, pidProfiles, PG_PID_PROFILE, 4);
 
 void resetPidProfile(pidProfile_t *pidProfile)
 {
@@ -152,6 +152,17 @@ void resetPidProfile(pidProfile_t *pidProfile)
         .harddeck.reaction_time = 300,      // 300 ms
         .harddeck.sigma_factor = 20,        // 2 sigma
         .harddeck.use_agl = 1,
+
+        .autoland.settle_time = 50,         // 5 s hover before the descent
+        .autoland.descent_rate = 80,        // 80 cm/s while high
+        .autoland.final_rate = 25,          // 25 cm/s below the slow height
+        .autoland.slow_height = 150,        // 1.5 m AGL
+        .autoland.ge_height = 40,           // push down below 40 cm AGL
+        .autoland.ge_push = 80,             // to learned hover - 80
+        .autoland.ge_push_rate = 150,       // 150 collective per s
+        .autoland.ground_collective = -100, // slightly negative pitch on the ground
+        .autoland.motor_off_delay = 20,     // 2 s on the ground, then motor off
+        .autoland.disarm_delay = 120,       // disarm 12 s after the motor cut
     );
 }
 

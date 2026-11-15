@@ -140,6 +140,7 @@
 
 #include "flight/gps_rescue.h"
 #include "flight/harddeck.h"
+#include "flight/autoland.h"
 #include "flight/position.h"
 #include "flight/imu.h"
 #include "flight/mixer.h"
@@ -919,6 +920,7 @@ static void osdElementFlymode(osdElementParms_t *element)
     //  2. GPS RESCUE
     //  3. RESCUE
     //  4. HARD DECK (recovering)
+    //  5. AUTOLAND (LAND in the air, DOWN on the ground)
     //  5. ANGLE
     //  6. HORIZON
     //  7. ACRO
@@ -931,6 +933,8 @@ static void osdElementFlymode(osdElementParms_t *element)
         strcpy(element->buff, "SAVE");
     } else if (hardDeckIsIntervening()) {
         strcpy(element->buff, "DECK");
+    } else if (autolandIsActive()) {
+        strcpy(element->buff, getAutolandState() >= AUTOLAND_STATE_LANDED ? "DOWN" : "LAND");
     } else if (FLIGHT_MODE(ANGLE_MODE)) {
         strcpy(element->buff, "ANGL");
     } else if (FLIGHT_MODE(HORIZON_MODE)) {

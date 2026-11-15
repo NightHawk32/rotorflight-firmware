@@ -122,4 +122,5 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     DEBUG_NAME(POS_EST_Z),
     DEBUG_NAME(POS_EST_XY),
     DEBUG_NAME(POS_EST_TERRAIN),
+    DEBUG_NAME(AUTOLAND),
 };

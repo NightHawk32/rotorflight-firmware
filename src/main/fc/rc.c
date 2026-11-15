@@ -41,6 +41,7 @@
 #include "fc/rc_modes.h"
 #include "fc/rc_rates.h"
 
+#include "flight/autoland.h"
 #include "flight/pid.h"
 #include "flight/setpoint.h"
 
@@ -99,14 +100,16 @@ float getRcDeflection(int axis)
     return rc.deflection[axis];
 }
 
+// After an autoland the throttle stays cut until the disarm, whatever the
+// throttle channel says, so the governor cannot spool up again
 float getThrottle(void)
 {
-    return rc.throttle;
+    return autolandIsMotorCut() ? 0 : rc.throttle;
 }
 
 bool isThrottleOff(void)
 {
-    return (rcInput[THROTTLE] < rc.offThrottle);
+    return autolandIsMotorCut() || (rcInput[THROTTLE] < rc.offThrottle);
 }
 
 uint16_t getFailsafeThrottle(void)

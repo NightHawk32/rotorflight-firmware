@@ -87,6 +87,8 @@ float getBaroDisturbance(void) { return 0; }
 bool isAGLAltitudeValid(void) { return false; }
 float getAGLAltitude(void) { return 0; }
 
+bool autolandIsActive(void) { return false; }
+
 bool isPositionXYValid(void) { return false; }
 float getPositionXCm(void) { return 0; }
 float getPositionYCm(void) { return 0; }

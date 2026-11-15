@@ -73,6 +73,7 @@
 #include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
 
+#include "flight/autoland.h"
 #include "flight/imu.h"
 #include "flight/pid.h"
 #include "flight/position.h"
@@ -97,9 +98,10 @@ typedef struct {
     float       lastAlt;        // previous cycle's measurement (frame tracking)
     bool        usingAgl;       // which frame targetAlt is expressed in
     bool        stickActive;    // collective outside the deadband this cycle
+    bool        landing;        // the autoland drives the target this cycle
     float       stickRef;       // collective stick (-1..1) when the hold engaged
     float       stickSpan;      // stick distance from stickRef for the full rate
-    float       stickRate;      // climb rate commanded by the stick, m/s
+    float       stickRate;      // commanded climb rate (stick and/or autoland), m/s
     bool        bumpless;       // preload the integrator on the next output
 
     // Last cycle, for altHoldGetStatus()
@@ -177,7 +179,13 @@ static float getCurrentVario(void)
  */
 static bool altHoldEngaged(void)
 {
-    return FLIGHT_MODE(ALTHOLD_MODE) &&
+    // The autoland engages the hold whatever the ALTHOLD switch says, and
+    // keeps it off on the ground, where holding an altitude a few cm up
+    // would lift the model or push it into the ground
+    if (autolandSuppressesAltHold()) {
+        return false;
+    }
+    return (FLIGHT_MODE(ALTHOLD_MODE) || autolandControlsAltitude()) &&
            !FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE) &&
            getRescueState() == RESCUE_STATE_OFF;
 }
@@ -189,6 +197,7 @@ void altHoldUpdate(void)
         ah.velIterm = 0;
         ah.stickActive = false;
         ah.stickRate = 0;
+        ah.landing = false;
         return;
     }
 
@@ -224,9 +233,17 @@ void altHoldUpdate(void)
     }
     ah.lastAlt = currentAlt;
 
-    if (!altSourceIsValid()) {
+    const bool wasLanding = ah.landing;
+    ah.landing = autolandControlsAltitude();
+
+    if (!altSourceIsValid() || autolandOverridesCollective()) {
         // No usable altitude: freeze the target rather than integrating the
-        // stick into a target the loop cannot track.
+        // stick into a target the loop cannot track.  While the autoland
+        // sets the collective itself (ground effect, touchdown), the target
+        // follows the model, so the loop resumes from here if it hands back.
+        if (altSourceIsValid()) {
+            ah.targetAlt = currentAlt;
+        }
         ah.stickActive = false;
         ah.stickRate = 0;
         return;
@@ -238,29 +255,38 @@ void altHoldUpdate(void)
 
     ah.stickActive = fabsf(delta) > ah.stickDeadband;
 
+    float rate = 0;
     if (ah.stickActive) {
         // Outside deadband: pilot is commanding a climb/descent rate,
         // squared so that small deflections are fine
         const float sign = (delta > 0) ? 1.0f : -1.0f;
         const float frac = constrainf((fabsf(delta) - ah.stickDeadband) /
                                       (ah.stickSpan - ah.stickDeadband), 0.0f, 1.0f);
-        ah.stickRate = sign * frac * frac * ah.maxClimbRate;
-        ah.targetAlt += ah.stickRate * pidGetDT();
+        rate = sign * frac * frac * ah.maxClimbRate;
+    }
+    if (ah.landing) {
+        // Landing: the stick may slow, stop or reverse the descent, but not
+        // make it faster than the autoland's rate
+        const float landRate = autolandGetClimbRate();
+        rate = ah.stickActive ? fmaxf(rate, landRate) : landRate;
+    }
+    ah.stickRate = rate;
+
+    if (ah.stickActive || ah.landing) {
+        ah.targetAlt += rate * pidGetDT();
 
         // Leash: the climb rate is fed forward, so the target only carries
         // the tracking error; keep it close to the model so it cannot run
         // ahead and make the model overshoot after release
         ah.targetAlt = constrainf(ah.targetAlt, currentAlt - AH_LEASH_M, currentAlt + AH_LEASH_M);
     }
-    else {
-        ah.stickRate = 0;
-        if (wasActive) {
-            // Released: latch the target near where the model will stop
-            const float lead = (ah.Kp_alt > 0) ? AH_STOP_LEAD * getCurrentVario() / ah.Kp_alt : 0;
-            ah.targetAlt = currentAlt + constrainf(lead, -AH_LEASH_M, AH_LEASH_M);
-        }
-        // Inside deadband: targetAlt stays frozen
+    else if (wasActive || wasLanding) {
+        // Stick released, or the autoland switched off: latch the target
+        // near where the model will stop
+        const float lead = (ah.Kp_alt > 0) ? AH_STOP_LEAD * getCurrentVario() / ah.Kp_alt : 0;
+        ah.targetAlt = currentAlt + constrainf(lead, -AH_LEASH_M, AH_LEASH_M);
     }
+    // Inside deadband: targetAlt stays frozen
 }
 
 /*
@@ -273,6 +299,7 @@ void altHoldUpdate(void)
 #define AH_FLAG_STICK           AH_STATUS_STICK     // pilot moving the target
 #define AH_FLAG_YIELDED         AH_STATUS_YIELDED   // mode on, but a rescue is in control
 #define AH_FLAG_EXIT_BLEND      AH_STATUS_EXIT_BLEND
+#define AH_FLAG_AUTOLAND        AH_STATUS_AUTOLAND
 
 static void altHoldDebug(float output, float Pterm, float velCmd, uint32_t flags)
 {
@@ -307,8 +334,9 @@ float altHoldApply(float collective)
     if (!altHoldEngaged()) {
         float output = collective;
 
-        if (FLIGHT_MODE(ALTHOLD_MODE)) {
-            // A rescue or failsafe is in control: it takes over at once
+        if (FLIGHT_MODE(ALTHOLD_MODE) || autolandSuppressesAltHold()) {
+            // A rescue or failsafe is in control: it takes over at once.
+            // On the ground after an autoland, the autoland has the collective.
             flags |= AH_FLAG_YIELDED;
             ah.exitArmed = false;
             ah.exitFade = 0;
@@ -345,6 +373,9 @@ float altHoldApply(float collective)
     flags |= AH_FLAG_ENGAGED;
     if (ah.stickActive) {
         flags |= AH_FLAG_STICK;
+    }
+    if (ah.landing) {
+        flags |= AH_FLAG_AUTOLAND;
     }
 
     const float tilt         = getCosTiltAngle();
@@ -388,8 +419,13 @@ float altHoldApply(float collective)
     // The integrator must be able to trim in both directions: clamped to
     // [0, hover] it could only ever add collective, so an over-estimated
     // hover_collective would leave a permanent climb it cannot cancel.
-    ah.velIterm = constrainf(ah.velIterm + ah.Ki_vel * velError,
-                             -ah.hoverCollective, ah.hoverCollective);
+    // Frozen while the autoland sets the collective itself: on the ground
+    // the error would only wind it down, and a false touchdown hands back
+    // to this loop with the hover point it had in flight
+    if (!autolandOverridesCollective()) {
+        ah.velIterm = constrainf(ah.velIterm + ah.Ki_vel * velError,
+                                 -ah.hoverCollective, ah.hoverCollective);
+    }
 
     float output = (ah.hoverCollective + Pterm + ah.velIterm) * tiltFactor;
     output = constrainf(output, 0.0f, 1000.0f);
@@ -398,6 +434,16 @@ float altHoldApply(float collective)
     altHoldDebug(output, Pterm, velCmd, flags);
 
     return output;
+}
+
+float altHoldGetHoverCollective(void)
+{
+    return ah.hoverCollective + ah.velIterm;
+}
+
+float altHoldGetCommandedRate(void)
+{
+    return ah.stickRate;
 }
 
 void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float *output)
@@ -427,6 +473,7 @@ void INIT_CODE altHoldInitProfile(const pidProfile_t *pidProfile)
     ah.stickSpan = 1.0f;
     ah.stickRate = 0;
     ah.stickActive = false;
+    ah.landing = false;
     ah.exitArmed = false;
     ah.exitFade = 0;
     ah.exitOffset = 0;

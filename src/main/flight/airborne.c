@@ -35,6 +35,7 @@
 #include "flight/imu.h"
 #include "flight/position.h"
 #include "flight/governor.h"
+#include "flight/autoland.h"
 
 #include "fc/runtime_config.h"
 #include "fc/rc.h"
@@ -155,7 +156,8 @@ static bool touchdown(void)
         (
             isOverThreshold(airborne.landingThreshold) ||
             getCosTiltAngle() < LANDING_COS_ANGLE_THRESHOLD ||
-            FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE)
+            FLIGHT_MODE(RESCUE_MODE | GPS_RESCUE_MODE | FAILSAFE_MODE) ||
+            autolandKeepsAirborne()
         )
     );
 }

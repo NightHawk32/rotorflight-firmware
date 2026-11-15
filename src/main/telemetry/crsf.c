@@ -51,6 +51,7 @@
 #include "flight/position.h"
 #include "flight/governor.h"
 #include "flight/harddeck.h"
+#include "flight/autoland.h"
 
 #include "io/displayport_crsf.h"
 #include "io/gps.h"
@@ -488,6 +489,8 @@ static void crsfFlightModeInfo(char *buf)
         flightMode = "RESCUE";
     } else if (hardDeckIsIntervening()) {
         flightMode = "HARDDECK";
+    } else if (autolandIsActive()) {
+        flightMode = getAutolandState() >= AUTOLAND_STATE_LANDED ? "LANDED" : "AUTOLAND";
     } else if (FLIGHT_MODE(HORIZON_MODE)) {
         flightMode = "HORIZON";
     } else if (FLIGHT_MODE(ANGLE_MODE)) {

@@ -31,6 +31,7 @@
 #include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
 
+#include "flight/autoland.h"
 #include "flight/imu.h"
 #include "flight/pid.h"
 #include "flight/position.h"
@@ -41,6 +42,9 @@
 
 // How far the stick may move the hold target ahead of the model
 #define POSHOLD_LEASH_CM        50.0f
+
+// Autoland in ground effect: tilt limit divided by this
+#define POSHOLD_NEAR_GROUND_TILT_DIV    3.0f
 
 // Angle output in centidegrees (same as gpsRescueAngle[])
 int32_t posHoldAngle[2];
@@ -95,8 +99,27 @@ void posHoldUpdate(void)
     posHoldAngle[AI_ROLL]  = 0;
     posHoldAngle[AI_PITCH] = 0;
 
-    if (!ARMING_FLAG(ARMED) || !FLIGHT_MODE(POSHOLD_MODE)) {
+    // The autoland engages position hold whatever the POSHOLD switch says
+    if (!ARMING_FLAG(ARMED) || !(FLIGHT_MODE(POSHOLD_MODE) || autolandWantsPosHold())) {
         ph.active = false;
+        posHoldDebugClear();
+        return;
+    }
+
+    const autolandPosHoldMode_e landMode = autolandPosHoldMode();
+
+    if (landMode == AUTOLAND_POSHOLD_GROUND) {
+        // Skids on the ground: hold the disc level and do not chase the
+        // position (dynamic rollover).  Stays engaged, with a zero angle,
+        // also without a valid XY estimate, so the cyclic stick is ignored.
+        // The target and wind trim are kept for a false-touchdown revert.
+        if (!ph.active) {
+            ph.holdX = getPositionXCm();
+            ph.holdY = getPositionYCm();
+            ph.iTermEast = 0;
+            ph.iTermNorth = 0;
+            ph.active = true;
+        }
         posHoldDebugClear();
         return;
     }
@@ -207,12 +230,17 @@ void posHoldUpdate(void)
     // Rotorflight level-mode convention: positive roll angle = right,
     // positive pitch angle = nose down = forward (attitude.values.pitch is
     // negative nose-up), so both map directly onto the body-frame demand.
-    float angleDegRoll  = constrainf(tiltRight, -ph.maxTiltDeg, ph.maxTiltDeg);
-    float angleDegPitch = constrainf(tiltFwd,   -ph.maxTiltDeg, ph.maxTiltDeg);
+    // Close to the ground in an autoland: small corrections only, and no
+    // wind trim built up from ground-effect disturbances
+    const bool nearGround = (landMode == AUTOLAND_POSHOLD_NEAR_GROUND);
+    const float maxTilt = nearGround ? ph.maxTiltDeg / POSHOLD_NEAR_GROUND_TILT_DIV : ph.maxTiltDeg;
+
+    float angleDegRoll  = constrainf(tiltRight, -maxTilt, maxTilt);
+    float angleDegPitch = constrainf(tiltFwd,   -maxTilt, maxTilt);
 
     // Anti-windup: stop accumulating once the tilt command is clipped, and
     // bound the trim itself to the configured tilt limit.
-    if (angleDegRoll == tiltRight && angleDegPitch == tiltFwd) {
+    if (!nearGround && angleDegRoll == tiltRight && angleDegPitch == tiltFwd) {
         ph.iTermEast  += ph.Ki_vel * velErrEast;
         ph.iTermNorth += ph.Ki_vel * velErrNorth;
 

@@ -1266,6 +1266,17 @@ const clivalue_t valueTable[] = {
     { "harddeck_sigma_factor",      VAR_UINT8  | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.sigma_factor) },
     { "harddeck_use_agl",           VAR_UINT8  | PROFILE_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_OFF_ON }, PG_PID_PROFILE, offsetof(pidProfile_t, harddeck.use_agl) },
 
+    { "autoland_settle_time",       VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 300 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.settle_time) },
+    { "autoland_descent_rate",      VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 300 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.descent_rate) },
+    { "autoland_final_rate",        VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 5, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.final_rate) },
+    { "autoland_slow_height",       VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 20, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.slow_height) },
+    { "autoland_ge_height",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 200 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.ge_height) },
+    { "autoland_ge_push",           VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 300 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.ge_push) },
+    { "autoland_ge_push_rate",      VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 10, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.ge_push_rate) },
+    { "autoland_ground_collective", VAR_INT16  | PROFILE_VALUE, .config.minmax = { -500, 0 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.ground_collective) },
+    { "autoland_motor_off_delay",   VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.motor_off_delay) },
+    { "autoland_disarm_delay",      VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 600 }, PG_PID_PROFILE, offsetof(pidProfile_t, autoland.disarm_delay) },
+
 #ifdef USE_OPTICAL_FLOW
     { "poshold_pos_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.pos_p_gain) },
     { "poshold_vel_p_gain",         VAR_UINT16 | PROFILE_VALUE, .config.minmaxUnsigned = { 0, 1000 }, PG_PID_PROFILE, offsetof(pidProfile_t, poshold.vel_p_gain) },

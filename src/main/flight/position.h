@@ -102,6 +102,9 @@ typedef struct positionStatus_s {
 
 void positionGetStatus(positionStatus_t *status);
 
+// GPS fix with enough satellites and a North-referenced heading frame
+bool isPositionGpsReady(void);
+
 // Optical-flow dead-reckoning position (cm) and velocity (cm/s)
 #ifdef USE_OPTICAL_FLOW
 float getPositionXCm(void);

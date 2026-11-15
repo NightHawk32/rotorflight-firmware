@@ -28,9 +28,15 @@
 #define AH_STATUS_STICK         (1 << 3)
 #define AH_STATUS_YIELDED       (1 << 4)
 #define AH_STATUS_EXIT_BLEND    (1 << 5)    // switched off, blending back to the stick
+#define AH_STATUS_AUTOLAND      (1 << 6)    // target driven by the autoland
 
 // Last controller cycle, for MSP (altitudes in m, output 0..1000)
 void altHoldGetStatus(uint8_t *flags, float *targetAlt, float *currentAlt, float *output);
+
+// Hover collective learned in this flight (hover setting + integrator, 0..1000)
+float altHoldGetHoverCollective(void);
+// Climb rate fed forward this cycle (stick and/or autoland), m/s
+float altHoldGetCommandedRate(void);
 
 void altHoldUpdate(void);
 float altHoldApply(float collective);

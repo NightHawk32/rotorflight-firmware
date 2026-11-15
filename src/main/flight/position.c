@@ -1671,6 +1671,20 @@ void positionGetStatus(positionStatus_t *st)
     st->flags = flags;
 }
 
+/*
+ * GPS usable for the XY estimate: a fix with at least position_gps_min_sats,
+ * and a heading frame tied to North (flow/GPS alignment learned, compass, or
+ * yaw set from the GPS course), so GPS corrections may be fused.
+ */
+bool isPositionGpsReady(void)
+{
+#if defined(USE_GPS) && defined(USE_OPTICAL_FLOW)
+    return gpsIsUsable() && (hdg.aligned || imuHeadingIsAbsolute());
+#else
+    return false;
+#endif
+}
+
 void INIT_CODE positionInit(void)
 {
     alt.source = positionConfig()->alt_source;

@@ -94,6 +94,7 @@
 #include "flight/position.h"
 #include "flight/althold.h"
 #include "flight/harddeck.h"
+#include "flight/autoland.h"
 #ifdef USE_OPTICAL_FLOW
 #include "flight/poshold.h"
 #endif
@@ -1433,7 +1434,7 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         break;
 
     case MSP2_GET_HOLD_PROFILE:
-        sbufWriteU8(dst, 1);    // payload version
+        sbufWriteU8(dst, 2);    // payload version
         sbufWriteU16(dst, currentPidProfile->althold.alt_p_gain);
         sbufWriteU16(dst, currentPidProfile->althold.alt_i_gain);
         sbufWriteU16(dst, currentPidProfile->althold.alt_d_gain);
@@ -1454,13 +1455,24 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         sbufWriteU16(dst, currentPidProfile->harddeck.reaction_time);
         sbufWriteU8(dst, currentPidProfile->harddeck.sigma_factor);
         sbufWriteU8(dst, currentPidProfile->harddeck.use_agl);
+        // Autoland (payload version 2)
+        sbufWriteU16(dst, currentPidProfile->autoland.settle_time);
+        sbufWriteU16(dst, currentPidProfile->autoland.descent_rate);
+        sbufWriteU16(dst, currentPidProfile->autoland.final_rate);
+        sbufWriteU16(dst, currentPidProfile->autoland.slow_height);
+        sbufWriteU16(dst, currentPidProfile->autoland.ge_height);
+        sbufWriteU16(dst, currentPidProfile->autoland.ge_push);
+        sbufWriteU16(dst, currentPidProfile->autoland.ge_push_rate);
+        sbufWriteU16(dst, (uint16_t)currentPidProfile->autoland.ground_collective);
+        sbufWriteU16(dst, currentPidProfile->autoland.motor_off_delay);
+        sbufWriteU16(dst, currentPidProfile->autoland.disarm_delay);
         break;
 
     case MSP2_GET_POSITION_STATUS: {
         positionStatus_t st;
         positionGetStatus(&st);
 
-        sbufWriteU8(dst, 4);    // payload version
+        sbufWriteU8(dst, 5);    // payload version
 
         // Estimator
         sbufWriteU16(dst, st.flags);
@@ -1539,6 +1551,18 @@ static bool mspProcessOutCommand(int16_t cmdMSP, sbuf_t *dst)
         // same units and frame as flowX/flowY (payload version 4)
         sbufWriteU16(dst, constrain(lrintf(st.flowCompFwd), INT16_MIN, INT16_MAX));
         sbufWriteU16(dst, constrain(lrintf(st.flowCompLeft), INT16_MIN, INT16_MAX));
+
+        // Autoland (payload version 5)
+        {
+            autolandStatus_t al;
+            autolandGetStatus(&al);
+            sbufWriteU8(dst, al.state);
+            sbufWriteU16(dst, al.flags);
+            sbufWriteU32(dst, al.stateTimeMs);
+            sbufWriteU16(dst, constrain(lrintf(al.learnedHover), INT16_MIN, INT16_MAX));
+            sbufWriteU16(dst, constrain(lrintf(al.collective), INT16_MIN, INT16_MAX));
+            sbufWriteU16(dst, constrain(lrintf(al.climbRate * 100), INT16_MIN, INT16_MAX));
+        }
         break;
     }
 
@@ -4661,8 +4685,9 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         positionConfigMutable()->flow_gyro_delay = MIN(sbufReadU8(src), 250);
         break;
 
-    case MSP2_SET_HOLD_PROFILE:
-        if (sbufReadU8(src) != 1) {
+    case MSP2_SET_HOLD_PROFILE: {
+        const uint8_t version = sbufReadU8(src);
+        if (version != 1 && version != 2) {
             return MSP_RESULT_ERROR;
         }
         currentPidProfile->althold.alt_p_gain = sbufReadU16(src);
@@ -4685,13 +4710,27 @@ static mspResult_e mspCommonProcessInCommand(mspDescriptor_t srcDesc, int16_t cm
         currentPidProfile->harddeck.reaction_time = sbufReadU16(src);
         currentPidProfile->harddeck.sigma_factor = sbufReadU8(src);
         currentPidProfile->harddeck.use_agl = sbufReadU8(src);
+        if (version >= 2) {
+            currentPidProfile->autoland.settle_time = sbufReadU16(src);
+            currentPidProfile->autoland.descent_rate = sbufReadU16(src);
+            currentPidProfile->autoland.final_rate = sbufReadU16(src);
+            currentPidProfile->autoland.slow_height = sbufReadU16(src);
+            currentPidProfile->autoland.ge_height = sbufReadU16(src);
+            currentPidProfile->autoland.ge_push = sbufReadU16(src);
+            currentPidProfile->autoland.ge_push_rate = sbufReadU16(src);
+            currentPidProfile->autoland.ground_collective = constrain((int16_t)sbufReadU16(src), -500, 0);
+            currentPidProfile->autoland.motor_off_delay = sbufReadU16(src);
+            currentPidProfile->autoland.disarm_delay = sbufReadU16(src);
+        }
         /* Load new values */
         altHoldInitProfile(currentPidProfile);
         hardDeckInitProfile(currentPidProfile);
+        autolandInitProfile(currentPidProfile);
 #ifdef USE_OPTICAL_FLOW
         posHoldInitProfile(currentPidProfile);
 #endif
         break;
+    }
 
 #ifdef USE_SMARTFUEL
     case MSP2_SET_SMARTFUEL_CONFIG:

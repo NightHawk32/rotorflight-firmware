@@ -55,6 +55,7 @@
 #include "flight/rescue.h"
 #include "flight/althold.h"
 #include "flight/harddeck.h"
+#include "flight/autoland.h"
 #ifdef USE_OPTICAL_FLOW
 #include "flight/poshold.h"
 #endif
@@ -754,6 +755,7 @@ void INIT_CODE pidLoadProfile(const pidProfile_t *pidProfile)
 #endif
     rescueInitProfile(pidProfile);
     altHoldInitProfile(pidProfile);
+    autolandInitProfile(pidProfile);
     hardDeckInitProfile(pidProfile);
 #ifdef USE_OPTICAL_FLOW
     posHoldInitProfile(pidProfile);
@@ -915,6 +917,10 @@ static void pidApplyCollective(void)
     // Apply altitude hold. Passes the rescue collective through while any
     // rescue is in control, so rescue keeps priority over altitude hold.
     collective = altHoldApply(collective);
+
+    // Apply autoland (ground effect and ground phases set the collective;
+    // may go below 0, which altitude hold never does)
+    collective = autolandApplyCollective(collective);
 
 #ifdef USE_ACC
     // Apply hard deck (highest priority)

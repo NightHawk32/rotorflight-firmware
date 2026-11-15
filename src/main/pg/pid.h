@@ -132,6 +132,19 @@ typedef struct {
     uint8_t     use_agl;            // Also respect the rangefinder AGL reading
 } pidHardDeckConfig_t;
 
+typedef struct {
+    uint16_t    settle_time;        // Hover before the descent, ds
+    uint16_t    descent_rate;       // Fast descent (valid AGL above slow_height), cm/s
+    uint16_t    final_rate;         // Slow descent, cm/s
+    uint16_t    slow_height;        // Fast -> slow descent below this AGL, cm
+    uint16_t    ge_height;          // Ground effect: push down below this AGL, cm
+    uint16_t    ge_push;            // Push the collective this far below the learned hover
+    uint16_t    ge_push_rate;       // ... at this rate, collective per s
+    int16_t     ground_collective;  // Collective held on the ground (-1000..1000)
+    uint16_t    motor_off_delay;    // On the ground with the motor running, ds
+    uint16_t    disarm_delay;       // Motor off until the disarm, ds
+} pidAutolandConfig_t;
+
 typedef struct pidProfile_s {
 
     char                profileName[MAX_PROFILE_NAME_LENGTH + 1];
@@ -187,6 +200,7 @@ typedef struct pidProfile_s {
     pidAltHoldConfig_t  althold;
     pidPosHoldConfig_t  poshold;
     pidHardDeckConfig_t harddeck;
+    pidAutolandConfig_t autoland;
     governorProfile_t   governor;
 
 } pidProfile_t;

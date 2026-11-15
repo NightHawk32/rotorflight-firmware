@@ -200,6 +200,15 @@ harddeck_unittest_SRC := \
 		$(USER_DIR)/flight/harddeck.c \
 		$(USER_DIR)/common/maths.c
 
+autoland_unittest_SRC := \
+		$(USER_DIR)/flight/autoland.c \
+		$(USER_DIR)/flight/althold.c \
+		$(USER_DIR)/common/maths.c
+
+autoland_unittest_DEFINES := \
+		USE_RANGEFINDER= \
+		USE_OPTICAL_FLOW=
+
 
 # This test is disabled due to build errors.
 #motor_output_unittest_SRC := \

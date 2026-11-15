@@ -70,6 +70,7 @@
 #include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
 
+#include "flight/autoland.h"
 #include "flight/imu.h"
 #include "flight/pid.h"
 #include "flight/position.h"
@@ -178,9 +179,11 @@ static inline timeDelta_t hdStateTime(void)
     return cmp32(millis(), hd.stateEntryTime);
 }
 
+// Stands down during an autoland (it would fight the deliberate descent);
+// re-arms by its own rule (climb above deck + arm margin) afterwards
 static inline bool hdModeActive(void)
 {
-    return ARMING_FLAG(ARMED) && FLIGHT_MODE(HARDDECK_MODE);
+    return ARMING_FLAG(ARMED) && FLIGHT_MODE(HARDDECK_MODE) && !autolandIsActive();
 }
 
 static inline int wrap180(int angle)

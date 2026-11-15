@@ -135,6 +135,7 @@ typedef enum {
     DEBUG_POS_EST_Z,
     DEBUG_POS_EST_XY,
     DEBUG_POS_EST_TERRAIN,
+    DEBUG_AUTOLAND,
     DEBUG_COUNT
 } debugType_e;
 

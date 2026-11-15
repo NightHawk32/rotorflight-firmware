@@ -1832,6 +1832,16 @@ static bool blackboxWriteSysinfo(void)
                                                                             currentPidProfile->harddeck.reaction_time,
                                                                             currentPidProfile->harddeck.sigma_factor,
                                                                             currentPidProfile->harddeck.use_agl);
+        BLACKBOX_PRINT_HEADER_LINE("autoland_descent", "%d,%d,%d,%d,%d",   currentPidProfile->autoland.settle_time,
+                                                                            currentPidProfile->autoland.descent_rate,
+                                                                            currentPidProfile->autoland.final_rate,
+                                                                            currentPidProfile->autoland.slow_height,
+                                                                            currentPidProfile->autoland.ge_height);
+        BLACKBOX_PRINT_HEADER_LINE("autoland_ground", "%d,%d,%d,%d,%d",    currentPidProfile->autoland.ge_push,
+                                                                            currentPidProfile->autoland.ge_push_rate,
+                                                                            currentPidProfile->autoland.ground_collective,
+                                                                            currentPidProfile->autoland.motor_off_delay,
+                                                                            currentPidProfile->autoland.disarm_delay);
         BLACKBOX_PRINT_HEADER_LINE("position_source", "%d,%d",              positionConfig()->alt_source,
                                                                             positionConfig()->xy_source);
         BLACKBOX_PRINT_HEADER_LINE("position_lpf", "%d,%d,%d,%d,%d",        positionConfig()->baro_alt_lpf,
